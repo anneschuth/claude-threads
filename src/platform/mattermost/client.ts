@@ -2,6 +2,7 @@ import { WebSocket } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { resolveReconnectPolicy } from '../../config/index.js';
+import { resolveAllowAllReaction } from '../../config/types.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
@@ -47,6 +48,9 @@ export class MattermostClient extends BasePlatformClient {
   private channelId: string;
   private directMessages: boolean;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  private allowAllReaction: boolean;
+  private workingDir?: string;
+  private additionalDirectories?: string[];
   private mcpServers?: Record<string, McpServerConfig>;
   private strictMcpConfig?: boolean;
   private claudeAiConnectors?: boolean;
@@ -68,6 +72,9 @@ export class MattermostClient extends BasePlatformClient {
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
+    this.allowAllReaction = resolveAllowAllReaction(platformConfig.allowAllReaction, `platforms[${platformConfig.id}].allowAllReaction`);
+    this.workingDir = platformConfig.workingDir;
+    this.additionalDirectories = platformConfig.additionalDirectories;
     this.mcpServers = platformConfig.mcpServers;
     this.strictMcpConfig = platformConfig.strictMcpConfig;
     this.claudeAiConnectors = platformConfig.claudeAiConnectors;
@@ -774,6 +781,9 @@ export class MattermostClient extends BasePlatformClient {
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
       claudeAiConnectors: this.claudeAiConnectors,
+      allowAllReaction: this.allowAllReaction,
+      workingDir: this.workingDir,
+      additionalDirectories: this.additionalDirectories,
     };
   }
 

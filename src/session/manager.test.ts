@@ -70,6 +70,7 @@ function createMockPlatform(platformId = 'test-platform') {
     getPinnedPosts: mock(async (): Promise<string[]> => []),
     sendTyping: mock(() => {}),
     getFormatter: () => createMockFormatter(),
+    getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     isUserAllowed: mock((username: string) => username === 'admin' || username === 'allowed-user'),
     getBotUser: mock(async () => ({ id: 'bot-id', username: 'bot', displayName: 'Bot' })),
     disconnect: mock(() => {}),

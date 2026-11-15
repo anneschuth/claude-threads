@@ -3,9 +3,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, it } from 'bun:test';
-import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, readdirSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, readdirSync, mkdirSync, symlinkSync, realpathSync } from 'fs';
+import { tmpdir, homedir } from 'os';
+import { join, resolve } from 'path';
 import {
   ClaudeCli,
   buildClaudeChildEnv,
@@ -14,8 +14,7 @@ import {
   buildPermissionArgs,
   type ClaudeCliOptions,
   type StatusLineData,
-  type McpConfigBlob,
-} from './cli.js';
+  type McpConfigBlob, expandHomeDir, buildAddDirArgs, findChannelDirProblems, resolveChannelWorkingDir, resolveSendFileRoots } from './cli.js';
 
 describe('ClaudeCli', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -653,6 +652,89 @@ describe('buildPermissionArgs', () => {
     const env = getMcpEnv(args);
     expect(env.SESSION_WORKING_DIR).toBe('/srv/work');
     expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
+  });
+
+  it('sets PERMISSION_ALLOW_ALL=0 only when the platform turns allowAllReaction off', () => {
+    const off = buildPermissionArgs({ ...baseOpts, permissionMode: 'default', platformConfig: { ...baseOpts.platformConfig, allowAllReaction: false } });
+    expect(getMcpEnv(off.args).PERMISSION_ALLOW_ALL).toBe('0');
+    const unset = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    expect(getMcpEnv(unset.args).PERMISSION_ALLOW_ALL).toBeUndefined();
+  });
+
+  it('forwards per-channel additionalDirectories (with ~ expanded) as send_file roots', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      platformConfig: { ...baseOpts.platformConfig, additionalDirectories: ['~/Projects/repo-a', '/srv/repo-b'] },
+    });
+    const env = getMcpEnv(args);
+    expect(env.SESSION_ADDITIONAL_DIRS).toBe(`${homedir()}/Projects/repo-a\n/srv/repo-b`);
+  });
+
+  it('omits SESSION_ADDITIONAL_DIRS when the channel declares no extra directories', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    expect(getMcpEnv(args).SESSION_ADDITIONAL_DIRS).toBeUndefined();
+  });
+
+  it('buildAddDirArgs passes each channel directory as --add-dir with ~ expanded', () => {
+    expect(buildAddDirArgs(['~/Projects/a', '/srv/b'])).toEqual(['--add-dir', `${homedir()}/Projects/a`, '--add-dir', '/srv/b']);
+    expect(buildAddDirArgs(undefined)).toEqual([]);
+  });
+
+  it('buildAddDirArgs drops what is not a path instead of crashing the spawn', () => {
+    expect(buildAddDirArgs('~/not-a-list')).toEqual([]);
+    expect(buildAddDirArgs(['/srv/a', 42, '', null])).toEqual(['--add-dir', '/srv/a']);
+  });
+
+  it('findChannelDirProblems names each directory that is missing or not a path', () => {
+    const exists = (path: string) => path === '/srv/ok' || path === `${homedir()}/ok`;
+    expect(findChannelDirProblems({ id: 'p', workingDir: '~/ok', additionalDirectories: ['/srv/ok'] }, exists)).toEqual([]);
+    expect(findChannelDirProblems({ id: 'p' }, exists)).toEqual([]);
+    expect(findChannelDirProblems({ id: 'p', workingDir: '/srv/typo', additionalDirectories: ['/srv/ok', '/srv/gone', 7] }, exists)).toEqual([
+      'platforms[p].workingDir: /srv/typo is not an existing directory',
+      'platforms[p].additionalDirectories: /srv/gone is not an existing directory',
+      'platforms[p].additionalDirectories must be a path, got 7',
+    ]);
+    expect(findChannelDirProblems({ id: 'p', additionalDirectories: '/srv/ok' }, exists)).toEqual([
+      'platforms[p].additionalDirectories must be a list of paths',
+    ]);
+  });
+
+  it('resolveChannelWorkingDir gives an absolute path, or the fallback when the channel sets none', () => {
+    expect(resolveChannelWorkingDir('~/repo', '/bot')).toBe(`${homedir()}/repo`);
+    expect(resolveChannelWorkingDir('rel/dir', '/bot')).toBe(resolve('rel/dir'));
+    expect(resolveChannelWorkingDir(undefined, '/bot')).toBe('/bot');
+    expect(resolveChannelWorkingDir('', '/bot')).toBe('/bot');
+    expect(resolveChannelWorkingDir(42, '/bot')).toBe('/bot');
+  });
+
+  it('resolveSendFileRoots resolves symlinks and leaves out roots that are too wide', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'ct-roots-')));
+    try {
+      mkdirSync(join(base, 'real'));
+      symlinkSync(join(base, 'real'), join(base, 'link'));
+      // The validator compares against the resolved path of the file, so the
+      // root has to be resolved too or a file under the symlink never matches.
+      expect(resolveSendFileRoots([join(base, 'link')])).toEqual([join(base, 'real')]);
+      // One wide root makes the validator refuse every send_file call.
+      expect(resolveSendFileRoots(['/opt', '/tmp', join(base, 'real')])).toEqual([join(base, 'real')]);
+      expect(resolveSendFileRoots(['/srv/does-not-exist'])).toEqual(['/srv/does-not-exist']);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('findChannelDirProblems warns about an extra directory that is too wide for send_file', () => {
+    expect(findChannelDirProblems({ id: 'p', additionalDirectories: ['/opt'] }, () => true)).toEqual([
+      'platforms[p].additionalDirectories: /opt is too wide for send_file, which will not accept files from it',
+    ]);
+  });
+
+  it('expandHomeDir expands only a leading ~', () => {
+    expect(expandHomeDir('~')).toBe(homedir());
+    expect(expandHomeDir('~/x')).toBe(`${homedir()}/x`);
+    expect(expandHomeDir('/a/~/b')).toBe('/a/~/b');
+    expect(expandHomeDir('~other/x')).toBe('~other/x');
   });
 
   it('forwards DECISION_BRIDGE_PATH (and the timeout override) to the MCP child', () => {

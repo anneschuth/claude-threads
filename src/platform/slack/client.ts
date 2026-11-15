@@ -2,6 +2,7 @@ import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { resolveReconnectPolicy } from '../../config/index.js';
+import { resolveAllowAllReaction } from '../../config/types.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
@@ -95,6 +96,9 @@ export class SlackClient extends BasePlatformClient {
   private rateLimitRetryAfter = 0;
 
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  private allowAllReaction: boolean;
+  private workingDir?: string;
+  private additionalDirectories?: string[];
   private mcpServers?: Record<string, McpServerConfig>;
   private strictMcpConfig?: boolean;
   private claudeAiConnectors?: boolean;
@@ -125,6 +129,9 @@ export class SlackClient extends BasePlatformClient {
     this.allowedUsers = platformConfig.allowedUsers;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
     this.outboundFiles = platformConfig.outboundFiles;
+    this.allowAllReaction = resolveAllowAllReaction(platformConfig.allowAllReaction, `platforms[${platformConfig.id}].allowAllReaction`);
+    this.workingDir = platformConfig.workingDir;
+    this.additionalDirectories = platformConfig.additionalDirectories;
     this.mcpServers = platformConfig.mcpServers;
     this.strictMcpConfig = platformConfig.strictMcpConfig;
     this.claudeAiConnectors = platformConfig.claudeAiConnectors;
@@ -990,6 +997,9 @@ export class SlackClient extends BasePlatformClient {
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
       claudeAiConnectors: this.claudeAiConnectors,
+      allowAllReaction: this.allowAllReaction,
+      workingDir: this.workingDir,
+      additionalDirectories: this.additionalDirectories,
     };
   }
 

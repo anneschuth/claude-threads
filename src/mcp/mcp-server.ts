@@ -62,6 +62,8 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .filter(u => u.length > 0);
 
 const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120000', 10);
+// '0' turns off the ✅ allow-all reaction (platform option `allowAllReaction: false`).
+const PERMISSION_ALLOW_ALL = process.env.PERMISSION_ALLOW_ALL !== '0';
 // Decision bridge back to the bot process (plan approvals / question answers).
 // Its timeout is deliberately much longer than the generic permission timeout:
 // chat users answer plans and questions on their own schedule.
@@ -80,6 +82,8 @@ const SESSION_OWNER_USERNAME = process.env.SESSION_OWNER_USERNAME || '';
 // Env-var names come from a shared module so a rename can't desync the two
 // sides — see src/mcp/outbound-env.ts.
 const SESSION_WORKING_DIR = process.env[OUTBOUND_ENV.SESSION_WORKING_DIR] || '';
+// Per-channel extra directories (newline-separated), accepted as send_file roots.
+const SESSION_ADDITIONAL_DIRS = (process.env[OUTBOUND_ENV.SESSION_ADDITIONAL_DIRS] || '').split('\n').filter(Boolean);
 const SESSION_UPLOAD_DIR = process.env[OUTBOUND_ENV.SESSION_UPLOAD_DIR] || '';
 const OUTBOUND_FILES_ENABLED = (process.env[OUTBOUND_ENV.OUTBOUND_FILES_ENABLED] ?? '1') !== '0';
 const OUTBOUND_FILES_MAX_BYTES = parseInt(
@@ -214,6 +218,11 @@ export interface PermissionHandlerConfig {
   platformConfigured: boolean;
   getAllowAll: () => boolean;
   setAllowAll: (value: boolean) => void;
+  /**
+   * Offer the ✅ allow-all reaction (default true). When false the prompt
+   * offers only 👍 / 👎, and a ✅ that arrives anyway approves this call only.
+   */
+  allowAllReaction?: boolean;
   now?: () => number;
   /**
    * Decision bridge back to the bot process (see src/mcp/decision-bridge.ts).
@@ -343,13 +352,16 @@ export async function handlePermissionWith(
 
     // Post permission request with reaction options
     const toolInfo = formatToolForPermission(toolName, toolInput, formatter);
+    const allowAllReaction = cfg.allowAllReaction ?? true;
     const message = `⚠️ ${formatter.formatBold('Permission requested')}\n\n${toolInfo}\n\n` +
-      `👍 Allow | ✅ Allow all | 👎 Deny`;
+      (allowAllReaction ? `👍 Allow | ✅ Allow all | 👎 Deny` : `👍 Allow | 👎 Deny`);
 
     const botUserId = await api.getBotUserId();
     const post = await api.createInteractivePost(
       message,
-      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      allowAllReaction
+        ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+        : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
       cfg.threadId
     );
 
@@ -363,11 +375,12 @@ export async function handlePermissionWith(
     }
 
     const { username } = decision;
-    if (decision.kind === 'approve') {
+    // With allowAllReaction off, a ✅ that arrives anyway approves this call only.
+    if (decision.kind === 'approve' || (decision.kind === 'allow-all' && !allowAllReaction)) {
       await api.updatePost(post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(username)}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
-    } else if (decision.kind === 'allow-all') {
+    } else if (decision.kind === 'allow-all' && allowAllReaction) {
       cfg.setAllowAll(true);
       await api.updatePost(post.id, `✅ ${formatter.formatBold('Allowed all')} by ${formatter.formatUserMention(username)}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed all: ${toolName}`);
@@ -436,6 +449,7 @@ async function handlePermission(
     platformConfigured: Boolean(PLATFORM_URL && PLATFORM_TOKEN && PLATFORM_CHANNEL_ID),
     getAllowAll: () => allowAllSession,
     setAllowAll: (v) => { allowAllSession = v; },
+    allowAllReaction: PERMISSION_ALLOW_ALL,
     decisionBridge: DECISION_BRIDGE_PATH
       ? { path: DECISION_BRIDGE_PATH, timeoutMs: DECISION_BRIDGE_TIMEOUT_MS }
       : undefined,
@@ -637,7 +651,7 @@ async function handleSendFile(args: { path: string; caption?: string }): Promise
     api: getApi(),
     threadId: PLATFORM_THREAD_ID,
     enabled: OUTBOUND_FILES_ENABLED,
-    allowedRoots: [SESSION_WORKING_DIR, SESSION_UPLOAD_DIR].filter(p => p.length > 0),
+    allowedRoots: [SESSION_WORKING_DIR, SESSION_UPLOAD_DIR, ...SESSION_ADDITIONAL_DIRS].filter(p => p.length > 0),
     maxBytes: OUTBOUND_FILES_MAX_BYTES,
   });
 }
@@ -1213,6 +1227,11 @@ export interface SendDmHandlerConfig {
    */
   counts: Map<string, number>;
   allowedRecipients: Set<string>;
+  /**
+   * Offer ✅ "allow all DMs to this recipient" (default true). When false the
+   * prompt offers only 👍 / 👎, and a ✅ that arrives anyway allows this DM only.
+   */
+  allowAllReaction?: boolean;
   /** Recipients with a permission prompt currently awaiting a reaction.
    *  Used to short-circuit duplicate prompts when Claude fans out parallel
    *  send_dm tool_use blocks to the same recipient. */
@@ -1408,10 +1427,11 @@ async function promptForDmPermission(
   const now = cfg.now ?? Date.now;
   const formatter = cfg.api.getFormatter();
   const recipientLabel = recipientUsername ? `@${recipientUsername}` : recipientId;
+  const allowAllReaction = cfg.allowAllReaction ?? true;
   const message =
     `⚠️ ${formatter.formatBold('Permission requested')}\n\n` +
     `claude-threads wants to send a DM to ${formatter.formatBold(recipientLabel)}.\n\n` +
-    `👍 Allow once | ✅ Allow all DMs to this recipient | 👎 Deny`;
+    (allowAllReaction ? `👍 Allow once | ✅ Allow all DMs to this recipient | 👎 Deny` : `👍 Allow once | 👎 Deny`);
 
   let post: { id: string };
   let botUserId: string;
@@ -1419,7 +1439,9 @@ async function promptForDmPermission(
     botUserId = await cfg.api.getBotUserId();
     post = await cfg.api.createInteractivePost(
       message,
-      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      allowAllReaction
+        ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+        : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
       cfg.threadId,
     );
   } catch (err) {
@@ -1436,6 +1458,11 @@ async function promptForDmPermission(
       await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(decision.username)} — sending DM to ${recipientLabel}`);
       return 'allow-once';
     case 'allow-all':
+      if (!allowAllReaction) {
+        // With allowAllReaction off, a ✅ that arrives anyway allows this DM only.
+        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(decision.username)} — sending DM to ${recipientLabel}`);
+        return 'allow-once';
+      }
       await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allow all')} by ${formatter.formatUserMention(decision.username)} — DMs to ${recipientLabel} won't prompt again this session`);
       return 'allow-all';
     case 'deny':
@@ -1512,6 +1539,7 @@ async function handleSendDm(
     promptTimeoutMs: PERMISSION_TIMEOUT_MS,
     counts: sendDmCounts,
     allowedRecipients: sendDmAllowedRecipients,
+    allowAllReaction: PERMISSION_ALLOW_ALL,
     inFlightPrompts: sendDmInFlightPrompts,
     memberCache: { get value() { return sendDmMemberCache; }, set value(v) { sendDmMemberCache = v; } },
     channelLabelCache: { get value() { return sendDmChannelLabel; }, set value(v) { sendDmChannelLabel = v; } },

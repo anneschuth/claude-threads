@@ -288,6 +288,33 @@ describe('handlePermissionWith', () => {
     expect(api.createdPosts).toHaveLength(1);
   });
 
+  it('allowAllReaction: false offers only 👍 / 👎', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    const cfg = { ...makeCfg(api), allowAllReaction: false };
+    await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+    expect(api.createdPosts[0].message).not.toContain('Allow all');
+    expect(api.createdPosts[0].reactions).toEqual(['+1', '-1']);
+  });
+
+  it('allowAllReaction: false treats a ✅ as allow-once, so the next call prompts again', async () => {
+    const api = new FakeApi({
+      reactions: [
+        { postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' },
+        { postId: 'post-2', userId: 'u-alice', emojiName: '-1' },
+      ],
+    });
+    const cfg = { ...makeCfg(api), allowAllReaction: false };
+    const first = await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+    expect(first.behavior).toBe('allow');
+    expect(cfg.getAllowAllState()).toBe(false);
+    expect(api.updatedPosts[0].message).not.toContain('Allowed all');
+    const second = await handlePermissionWith('Bash', { command: 'git push --force' }, cfg);
+    expect(second.behavior).toBe('deny');
+    expect(api.createdPosts).toHaveLength(2);
+  });
+
   it('denies when authorized user reacts with -1', async () => {
     const api = new FakeApi({
       reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '-1' }],
@@ -1781,6 +1808,30 @@ describe('handleSendDmWith', () => {
       makeSendDmCfg(api, state),
     );
     expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(true);
+  });
+
+  it('with allowAllReaction off, ✅ is not offered and sends this one DM without promoting the recipient', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const offered: string[][] = [];
+    const createInteractivePost = api.createInteractivePost.bind(api);
+    api.createInteractivePost = async (message: string, reactions: string[], threadId?: string) => {
+      offered.push(reactions);
+      expect(message).not.toMatch(/Allow all/);
+      return createInteractivePost(message, reactions, threadId);
+    };
+    const state = makeSendDmState();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'first' },
+      { ...makeSendDmCfg(api, state), allowAllReaction: false },
+    );
+    expect(result.ok).toBe(true);
+    expect(offered).toHaveLength(1);
+    expect(offered[0]).toHaveLength(2);
+    expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(false);
   });
 
   it('refuses when the user denies the prompt', async () => {
