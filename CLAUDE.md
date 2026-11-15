@@ -29,7 +29,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 ## Contribution Conventions
 
-- **Pull request titles and bodies are written in English.** This is an open-source project with an international audience, so PRs stay in English even though commit messages may be in Dutch. Keep the CHANGELOG in English as well.
+- **Commit messages, pull request titles and bodies are written in English.** This is an open-source project with an international audience. That includes the subject of a squash merge and a release commit. Keep the CHANGELOG in English as well.
 
 ## Architecture Overview
 
