@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.41.2] - 2026-11-15
+
 ### Fixed
 - **Slack: two channels on one app no longer lose each other's messages** (#668). Two `platforms:` entries with the same `appToken` each opened their own Socket Mode connection. Slack spreads an app's events over all of its connections, so each entry received and dropped events meant for the other, and messages in both channels went unanswered with nothing in the log. Entries that share an `appToken` now share one connection: the first enabled entry owns it and the others get their events through it. Entries on different apps and single-channel setups are unchanged. Disabling the owning entry in the terminal UI stops the others until the bot restarts, and the UI and log say so; see [Several channels on one Slack app](docs/CONFIGURATION.md#several-channels-on-one-slack-app).
 
