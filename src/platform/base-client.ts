@@ -391,16 +391,32 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     // would otherwise hold the event loop open through shutdown and then
     // reconnect a client that was deliberately closed (Gemini review).
     this.clearReconnectTimer();
-    // Detach all event listeners so any in-flight 'message' handler the
-    // websocket queued just before close can't still trigger startSession
-    // on a half-shut-down bot. Critical for integration tests: without it,
-    // back-to-back startTestBot/bot.stop sees the previous bot's listener
-    // still react to the next test's @mention, producing two concurrent
-    // sessions on the same Mattermost bot token (visible in CI as a
-    // "Session started" log immediately followed by another from a
-    // different bot, two mock-claude pids, and downstream test failures).
-    this.removeAllListeners();
+    // A platform that was disabled must not replay what it missed when it is
+    // enabled again, whether or not the socket happened to be reconnecting.
+    this.isReconnecting = false;
+    // From here emit() delivers nothing (see below), so an in-flight
+    // 'message' handler the websocket queued just before close cannot still
+    // trigger startSession on a half-shut-down bot.
     return this.forceCloseConnection();
+  }
+
+  /**
+   * Deliver nothing while the client is intentionally disconnected.
+   *
+   * Critical for integration tests: without it, back-to-back
+   * startTestBot/bot.stop sees the previous bot's listener still react to the
+   * next test's @mention, producing two concurrent sessions on the same
+   * Mattermost bot token (visible in CI as a "Session started" log
+   * immediately followed by another from a different bot, two mock-claude
+   * pids, and downstream test failures).
+   *
+   * The listeners stay attached. They are added once, at startup, and a
+   * platform that is disabled and enabled again in the terminal UI reuses this
+   * client: detaching them here left it connected and deaf until a restart.
+   */
+  override emit(event: string | symbol, ...args: unknown[]): boolean {
+    if (this.isIntentionalDisconnect) return false;
+    return super.emit(event, ...args);
   }
 
   /**

@@ -230,7 +230,7 @@ Entries with the same `appToken` share one Socket Mode connection. The first ena
 Two consequences:
 
 - `reconnectPolicy` on the entry that owns the connection applies to all of them. On the other entries it is ignored.
-- Disabling the owning entry in the terminal UI closes the connection, so the other entries stop receiving messages. The UI shows them as disconnected and the log names them. Restart the bot to restore them: the next enabled entry then opens the connection.
+- Disabling the owning entry in the terminal UI closes the connection, so the other entries stop receiving messages. The UI shows them as disconnected and the log names them. Enable the owning entry again to restore them, or restart the bot, after which the next enabled entry opens the connection. Messages sent in the meantime are not picked up afterwards.
 
 Each entry needs its own `channelId`. Two entries on the same app and the same channel are reported as an error at startup, because only one of them can receive that channel's messages. Entries on different Slack apps (different `appToken`) each keep their own connection.
 
