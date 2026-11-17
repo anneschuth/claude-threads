@@ -85,7 +85,7 @@
     "react": "^19.3.1",
     "semver": "7.8.6",
     "update-notifier": "^7.3.1",
-    "ws": "8.22.1",
+    "ws": "8.23.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
