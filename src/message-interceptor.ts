@@ -203,6 +203,9 @@ export function runMessageInterceptor(
       chunks.push(chunk);
     });
     child.on('error', () => finish(NOT_HANDLED));
+    // A helper holding stdout open would otherwise keep 'close' from firing
+    // until the timeout, losing an answer the command already gave.
+    child.on('exit', () => terminateGroup(child));
     child.on('close', (code) => {
       // Anything the command left running in its group must not outlive its answer.
       terminateGroup(child);

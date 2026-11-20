@@ -108,6 +108,8 @@ const togglePlatformSerially = createSerialByKey<string>();
 let onReconnectExhausted: ((platformId: string) => void) | undefined;
 /** Set once shutdown or an update restart begins: an interceptor result arriving after it routes nothing. */
 let botStopping = false;
+/** Platforms being disabled: an interceptor result arriving during the pause routes nothing. */
+const disablingPlatforms = new Set<string>();
 
 function wirePlatformEvents(
   platformId: string,
@@ -713,7 +715,9 @@ async function startWithoutDaemon() {
           } else {
             // Disable platform: pause sessions and disconnect
             ui.addLog({ level: 'info', component: 'toggle', message: `Disabling platform ${platformId}...` });
-            // Pause all active sessions for this platform first
+            // Pause all active sessions for this platform first. Interceptor
+            // results stop routing before the pause snapshots the sessions.
+            disablingPlatforms.add(platformId);
             await sessionManager?.pauseSessionsForPlatform(platformId);
             client.disconnect();
             // Persist disabled state — including the in-memory snapshot the DM
@@ -721,6 +725,7 @@ async function startWithoutDaemon() {
             // silently re-enable this instance.
             sessionStore.setPlatformEnabled(platformId, false);
             platformEnabledState.set(platformId, false);
+            disablingPlatforms.delete(platformId);
             ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
             // The socket this entry owned also fed every entry on the same Slack
@@ -923,7 +928,7 @@ async function startWithoutDaemon() {
       ui,
       platformConfig.directChannelMode,
       resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
-      () => !botStopping && (platformEnabledState.get(platformConfig.id) ?? true),
+      () => !botStopping && !disablingPlatforms.has(platformConfig.id) && (platformEnabledState.get(platformConfig.id) ?? true),
     );
   }
 

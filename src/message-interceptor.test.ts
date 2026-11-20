@@ -101,6 +101,17 @@ describe('runMessageInterceptor', () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  test('an answer stands even when a helper the command started holds stdout open', async () => {
+    if (process.platform === 'win32') return;
+    const holder = `require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},60000)'],` +
+      `{stdio:['ignore','inherit','ignore']}).unref();console.log('{"handled":true}')`;
+    const started = Date.now();
+    expect(await runMessageInterceptor({ ...node(holder), timeoutMs: 3000 }, REQUEST)).toEqual({
+      handled: true, reply: undefined, reaction: undefined,
+    });
+    expect(Date.now() - started).toBeLessThan(2500);
+  });
+
   test('a non-zero exit is not handled, whatever it printed', async () => {
     const result = await runMessageInterceptor(node(`console.log('{"handled":true}');process.exit(3)`), REQUEST);
     expect(result).toEqual({ handled: false });
