@@ -3128,6 +3128,23 @@ describe('message interceptor', () => {
     expect(session.sendFollowUp).not.toHaveBeenCalled();
   });
 
+  test('a platform disabled between reply chunks posts nothing more', async () => {
+    let generation = 0;
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    (client as any).getMessageLimits = () => ({ maxLength: 4, hardThreshold: 4 });
+    (client.createPost as any).mockImplementation(async () => {
+      generation += 1;
+      return { id: 'p' };
+    });
+    await handleMessage(client, session, post('1A'), user, {
+      ...options(node(`console.log(JSON.stringify({handled:true,reply:'aaaabbbbcccc'}))`)),
+      isPlatformEnabled: () => true,
+      platformGeneration: () => generation,
+    });
+    expect(client.createPost).toHaveBeenCalledTimes(1);
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
   test('a long reply is split without cutting a surrogate pair', () => {
     const text = 'a'.repeat(4) + '😀' + 'b'.repeat(3);
     const chunks = splitReply(text, 5);

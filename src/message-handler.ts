@@ -223,10 +223,10 @@ async function interceptedBeforeClaude(
     message: content,
     session: state,
   });
-  if (
-    (options.isPlatformEnabled && !options.isPlatformEnabled()) ||
-    options.platformGeneration?.() !== generationBefore
-  ) {
+  const stopped = () =>
+    (options.isPlatformEnabled !== undefined && !options.isPlatformEnabled()) ||
+    options.platformGeneration?.() !== generationBefore;
+  if (stopped()) {
     options.logger?.debug?.(`platform ${options.platformId} was disabled while ${post.id} was being intercepted; dropped`);
     return 'handled';
   }
@@ -252,6 +252,11 @@ async function interceptedBeforeClaude(
       // The reply may fit the 64 KB output cap yet not one post.
       const { maxLength } = client.getMessageLimits();
       for (const chunk of splitReply(result.reply, maxLength)) {
+        // Posting goes over HTTP, so a disable between chunks does not stop it by itself.
+        if (stopped()) {
+          options.logger?.debug?.(`platform ${options.platformId} was disabled while replying to ${post.id}; rest dropped`);
+          return 'handled';
+        }
         await client.createPost(chunk, threadRoot);
       }
       replied = true;
