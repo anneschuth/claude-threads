@@ -83,8 +83,23 @@ export function resolveMessageInterceptor(
 
 type Spawn = (command: string, args: string[]) => ChildProcess;
 
+// Its own process group (POSIX), so a timeout can end any helper it started too.
+const ownGroup = process.platform !== 'win32';
+
 const defaultSpawn: Spawn = (command, args) =>
-  crossSpawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'] });
+  crossSpawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], detached: ownGroup });
+
+/** Kill the command and everything it started, and let go of its pipe. */
+function terminate(child: ChildProcess | undefined): void {
+  if (!child) return;
+  try {
+    if (ownGroup && child.pid) process.kill(-child.pid, 'SIGKILL');
+    else child.kill('SIGKILL');
+  } catch {
+    child.kill('SIGKILL');
+  }
+  child.stdout?.destroy();
+}
 
 /** Parse the command's stdout. Anything but a well-formed "handled" object is NOT_HANDLED. */
 export function parseInterceptResult(stdout: string): InterceptResult {
@@ -98,11 +113,13 @@ export function parseInterceptResult(stdout: string): InterceptResult {
     return NOT_HANDLED;
   }
   const { reply, reaction } = parsed as { reply?: unknown; reaction?: unknown };
-  return {
-    handled: true,
-    reply: typeof reply === 'string' && reply.trim() ? reply : undefined,
-    reaction: typeof reaction === 'string' && /^[\w+-]+$/.test(reaction) ? reaction : undefined,
-  };
+  // A field that is present but unusable means the answer cannot be delivered:
+  // swallowing the message then would leave the user with no answer at all.
+  if (reply !== undefined && (typeof reply !== 'string' || !reply.trim())) return NOT_HANDLED;
+  if (reaction !== undefined && (typeof reaction !== 'string' || !/^[\w+-]+$/.test(reaction))) {
+    return NOT_HANDLED;
+  }
+  return { handled: true, reply, reaction };
 }
 
 /** Run the interceptor once. Never throws; every failure is NOT_HANDLED. */
@@ -121,7 +138,7 @@ export function runMessageInterceptor(
       resolve(result);
     };
     const timer = setTimeout(() => {
-      child?.kill('SIGKILL');
+      terminate(child);
       finish(NOT_HANDLED);
     }, config.timeoutMs ?? DEFAULT_INTERCEPTOR_TIMEOUT_MS);
 
@@ -136,7 +153,7 @@ export function runMessageInterceptor(
     child.stdout?.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_OUTPUT_BYTES) {
-        child.kill('SIGKILL');
+        terminate(child);
         finish(NOT_HANDLED);
         return;
       }

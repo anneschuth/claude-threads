@@ -3004,6 +3004,37 @@ describe('message interceptor', () => {
     expect(client.createPost).not.toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
   });
 
+  test('a sender the platform could not resolve is never offered', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('1A'), null, options(HANDLED));
+    expect(client.createPost).not.toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+  });
+
+  test('a let-through message is routed again: a session that paused meanwhile is resumed', async () => {
+    const live = { sessionId: 'test:thread1' };
+    let paused = false;
+    (session.registry.findByThreadId as any).mockImplementation(() => (paused ? undefined : live));
+    (session.registry.getPersistedByThreadId as any).mockImplementation(() =>
+      paused ? { sessionAllowedUsers: ['allowed-user'] } : undefined);
+    (session.getPersistedSession as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+    const pausing = node(`setTimeout(()=>console.log('{"handled":false}'),50)`);
+    const run = handleMessage(client, session, post('1A'), user, options(pausing));
+    paused = true;
+    await run;
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+    expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', '1A', undefined, 'allowed-user', 'test-platform');
+  });
+
+  test('a session replaced while the command ran does not get the context', async () => {
+    let current: object = { sessionId: 'test:thread1' };
+    (session.registry.findByThreadId as any).mockImplementation(() => current);
+    const run = handleMessage(client, session, post('1A'), user, options(HANDLED));
+    current = { sessionId: 'test:thread1', replaced: true };
+    await run;
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+    expect(session.addSideConversation).not.toHaveBeenCalled();
+  });
+
   test('without the option nothing changes', async () => {
     (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     await handleMessage(client, session, post('1A'), user, options());

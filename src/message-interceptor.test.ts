@@ -56,12 +56,10 @@ describe('parseInterceptResult', () => {
     expect(parseInterceptResult('null')).toEqual({ handled: false });
   });
 
-  test('a blank reply and a malformed reaction are dropped', () => {
-    expect(parseInterceptResult('{"handled": true, "reply": "  ", "reaction": "x y"}')).toEqual({
-      handled: true,
-      reply: undefined,
-      reaction: undefined,
-    });
+  test('a present but unusable reply or reaction is not handled', () => {
+    expect(parseInterceptResult('{"handled": true, "reply": "  "}')).toEqual({ handled: false });
+    expect(parseInterceptResult('{"handled": true, "reply": 3}')).toEqual({ handled: false });
+    expect(parseInterceptResult('{"handled": true, "reaction": "x y"}')).toEqual({ handled: false });
     expect(parseInterceptResult('{"handled": true, "reply": "done", "reaction": "white_check_mark"}')).toEqual({
       handled: true,
       reply: 'done',
@@ -105,5 +103,21 @@ describe('runMessageInterceptor', () => {
   test('a command that exits without reading stdin still counts by its output', async () => {
     const result = await runMessageInterceptor(node(`console.log('{"handled":true,"reaction":"eyes"}')`), REQUEST);
     expect(result).toEqual({ handled: true, reply: undefined, reaction: 'eyes' });
+  });
+
+  test('a timeout also ends the helpers the command started', async () => {
+    const marker = `ct-intercept-helper-${process.pid}-${Date.now()}`;
+    const result = await runMessageInterceptor(
+      {
+        command: ['/bin/sh', '-c', `"$0" -e 'setTimeout(()=>{},30000)' ${marker} & "$0" -e 'setTimeout(()=>{},30000)' ${marker}`, process.execPath],
+        timeoutMs: 500,
+      },
+      REQUEST,
+    );
+    expect(result).toEqual({ handled: false });
+    await new Promise((r) => setTimeout(r, 200));
+    const { execSync } = await import('child_process');
+    const left = execSync(`pgrep -f '[c]${marker.slice(1)}' || true`).toString().trim();
+    expect(left).toBe('');
   });
 });

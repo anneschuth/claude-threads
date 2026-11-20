@@ -153,22 +153,27 @@ function ackReceipt(client: PlatformClient, postId: string): void {
 
 /**
  * Offer a message that has cleared every gate to the operator's interceptor.
- * True when it answered the message, so Claude must not run. A message with
- * files is never offered: the interceptor sees text only, and must not answer
- * for an attachment it cannot read.
+ * `handled`: it answered, so Claude must not run. `passed`: it ran and let the
+ * message through; the caller routes the message again from the top without
+ * the interceptor, because the session may have paused, ended or started while
+ * the command ran. `skipped`: it never ran. A message with files is never
+ * offered (the interceptor sees text only), nor one whose sender the platform
+ * could not resolve, which the session lifecycle would refuse anyway.
  */
 async function interceptedBeforeClaude(
   client: PlatformClient,
   session: SessionManager,
   options: MessageHandlerOptions,
   post: PlatformPost,
+  user: PlatformUser | null,
   threadRoot: string,
-  username: string,
   content: string,
   state: InterceptSessionState,
-): Promise<boolean> {
+): Promise<'handled' | 'passed' | 'skipped'> {
   const config = options.messageInterceptor;
-  if (!config || !content || post.metadata?.files?.length) return false;
+  if (!config || !content || !user?.username || post.metadata?.files?.length) return 'skipped';
+  const username = user.username;
+  const sessionBefore = state === 'active' ? session.registry.findByThreadId(threadRoot, options.platformId) : undefined;
   const result = await runMessageInterceptor(config, {
     version: 1,
     platformId: options.platformId,
@@ -178,7 +183,7 @@ async function interceptedBeforeClaude(
     message: content,
     session: state,
   });
-  if (!result.handled) return false;
+  if (!result.handled) return 'passed';
   auditLog(options.platformId, {
     threadId: threadRoot,
     actor: username,
@@ -199,8 +204,17 @@ async function interceptedBeforeClaude(
     }
   }
   // A live session would otherwise never learn this exchange happened: it
-  // reaches Claude with the next turn, the way side conversations do.
-  if (state === 'active') {
+  // reaches Claude with the next turn, the way side conversations do. Only
+  // into the session that authorized the message: addSideConversation finds
+  // its session by raw thread id, and the command ran while anything changed.
+  const sessionNow = session.registry.findByThreadId(threadRoot, options.platformId);
+  if (
+    state === 'active' &&
+    sessionNow !== undefined &&
+    sessionNow === sessionBefore &&
+    session.registry.findByThreadId(threadRoot) === sessionNow &&
+    session.isUserAllowedInSession(threadRoot, username, options.platformId)
+  ) {
     session.addSideConversation(threadRoot, {
       fromUser: username,
       mentionedUser: client.getBotName(),
@@ -211,7 +225,12 @@ async function interceptedBeforeClaude(
       postId: post.id,
     });
   }
-  return true;
+  return 'handled';
+}
+
+/** Route a message the interceptor let through again, from the top, without it. */
+function withoutInterceptor(options: MessageHandlerOptions): MessageHandlerOptions {
+  return { ...options, messageInterceptor: undefined };
 }
 
 /**
@@ -419,9 +438,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
-        if (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, content, 'active')) {
-          return;
-        }
+        const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'active');
+        if (intercepted === 'handled') return;
+        if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
         ackReceipt(client, post.id);
         await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
       }
@@ -569,9 +588,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
-        if (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, content, 'paused')) {
-          return;
-        }
+        const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'paused');
+        if (intercepted === 'handled') return;
+        if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
         ackReceipt(client, post.id);
         await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }
@@ -756,12 +775,10 @@ export async function handleMessage(
 
     // Only a plain message is offered: one that set options or a worktree
     // asked for a session, which the interceptor cannot give.
-    if (
-      !worktreeBranch &&
-      Object.keys(initialOptions).length === 0 &&
-      (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, prompt.trim(), 'none'))
-    ) {
-      return;
+    if (!worktreeBranch && Object.keys(initialOptions).length === 0) {
+      const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, prompt.trim(), 'none');
+      if (intercepted === 'handled') return;
+      if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
     }
 
     // Start session with worktree if branch specified
