@@ -3067,6 +3067,17 @@ describe('message interceptor', () => {
     expect(session.startSession).not.toHaveBeenCalled();
   });
 
+  test('a platform disabled while the command ran gets no reply and no Claude', async () => {
+    let enabled = true;
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    const slow = node(`setTimeout(()=>console.log(JSON.stringify({handled:true,reply:'Requeued on 1A.'})),50)`);
+    const run = handleMessage(client, session, post('1A'), user, { ...options(slow), isPlatformEnabled: () => enabled });
+    enabled = false;
+    await run;
+    expect(client.createPost).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
   test('a session replaced while the command ran does not get the context', async () => {
     let current: object = { sessionId: 'test:thread1' };
     (session.registry.findByThreadId as any).mockImplementation(() => current);

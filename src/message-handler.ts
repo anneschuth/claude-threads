@@ -125,6 +125,12 @@ export interface MessageHandlerOptions {
    * and `PlatformInstanceConfig.messageInterceptor`.
    */
   messageInterceptor?: MessageInterceptorConfig;
+  /**
+   * Whether the platform is still switched on. Read when an interceptor
+   * returns: a platform disabled while the command ran gets no reply, and the
+   * message is not routed to Claude.
+   */
+  isPlatformEnabled?: () => boolean;
 }
 
 /**
@@ -186,6 +192,10 @@ async function interceptedBeforeClaude(
     message: content,
     session: state,
   });
+  if (options.isPlatformEnabled && !options.isPlatformEnabled()) {
+    options.logger?.debug?.(`platform ${options.platformId} was disabled while ${post.id} was being intercepted; dropped`);
+    return 'handled';
+  }
   if (!result.handled) return 'passed';
   auditLog(options.platformId, {
     threadId: threadRoot,

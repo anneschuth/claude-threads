@@ -113,7 +113,8 @@ function wirePlatformEvents(
   session: SessionManager,
   ui: UIProvider,
   directChannelMode?: DirectChannelModeConfig,
-  messageInterceptor?: MessageInterceptorConfig
+  messageInterceptor?: MessageInterceptorConfig,
+  isPlatformEnabled?: () => boolean,
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -125,6 +126,7 @@ function wirePlatformEvents(
       platformId,
       directChannelMode,
       messageInterceptor,
+      isPlatformEnabled,
       logger: {
         error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
       },
@@ -919,6 +921,7 @@ async function startWithoutDaemon() {
       ui,
       platformConfig.directChannelMode,
       resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
+      () => platformEnabledState.get(platformConfig.id) ?? true,
     );
   }
 
