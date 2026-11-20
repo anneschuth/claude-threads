@@ -196,7 +196,10 @@ async function interceptedBeforeClaude(
   });
   if (result.reaction) {
     void Promise.resolve(client.addReaction(post.id, result.reaction)).catch((err) => {
-      ackLog.debug(`interceptor reaction '${result.reaction}' failed on ${post.id}: ${err}`);
+      // As for a failed reply: the command acted, so the message is not re-sent to Claude.
+      options.logger?.error(
+        `message interceptor handled ${post.id} but its reaction '${result.reaction}' could not be added: ${err instanceof Error ? err.message : String(err)}`,
+      );
     });
   }
   let replied = false;

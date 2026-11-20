@@ -41,7 +41,11 @@ stdout, to answer it:
 
 `reply` is posted in the thread as the bot (split across several posts if it exceeds the platform's post limit); `reaction` is added to the message. Both are optional. With `handled: true`, Claude does not run for this message. In an `active` session, the message and the reply reach Claude with its next turn as side-conversation context, so it is never surprised by a decision made around it. That context lives in memory: if the session pauses before its next turn, it is not carried into the resumed session.
 
-Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). A broken interceptor therefore costs only what not having one costs. stderr is ignored.
+Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). A broken interceptor therefore costs only what not having one costs, with one exception: nothing is rolled back. A command that acts and then fails to answer in time (or exits non-zero, or prints invalid JSON) has acted, and Claude still receives the message. Make any change the command makes idempotent, keyed by `platformId` and `postId`, or keep it read-only until it is sure to answer. stderr is ignored.
+
+At most 8 interceptor commands run at once across the bot; a message arriving while 8 are running passes through without being offered.
+
+A reply or reaction that cannot be delivered is logged as an error; the message is still not sent to Claude, since the command already acted.
 
 Each handled message is recorded in the audit log (when enabled) as a `command` entry with tool `message-interceptor`.
 

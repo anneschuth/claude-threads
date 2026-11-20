@@ -3019,6 +3019,16 @@ describe('message interceptor', () => {
     expect(parts).toEqual(['x'.repeat(10), 'x'.repeat(10), 'x'.repeat(5)]);
   });
 
+  test('a reaction that cannot be added is logged as an error, and Claude still does not run', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    (client.addReaction as any).mockImplementation(async () => { throw new Error('no such emoji'); });
+    const opts = options(node(`console.log(JSON.stringify({handled:true,reaction:'nope'}))`));
+    await handleMessage(client, session, post('1A'), user, opts);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+    expect((opts.logger!.error as any).mock.calls.some((c: string[]) => c[0].includes("reaction 'nope'"))).toBe(true);
+  });
+
   test('commands are never offered', async () => {
     (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     await handleMessage(client, session, post('!stop'), user, options(HANDLED));

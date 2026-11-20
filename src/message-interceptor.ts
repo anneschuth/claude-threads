@@ -53,6 +53,8 @@ export interface InterceptResult {
 
 export const DEFAULT_INTERCEPTOR_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
+/** Commands running at once, across the bot; past it a message passes through unoffered. */
+export const MAX_CONCURRENT_INTERCEPTORS = 8;
 /** setTimeout's ceiling: a larger delay fires after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
 const NOT_HANDLED: InterceptResult = { handled: false };
@@ -152,6 +154,7 @@ export function runMessageInterceptor(
   request: InterceptRequest,
   spawnFn: Spawn = defaultSpawn,
 ): Promise<InterceptResult> {
+  if (live.size >= MAX_CONCURRENT_INTERCEPTORS) return Promise.resolve(NOT_HANDLED);
   return new Promise((resolve) => {
     let settled = false;
     let child: ChildProcess;

@@ -1,5 +1,6 @@
 import { describe, test, expect, spyOn } from 'bun:test';
 import {
+  MAX_CONCURRENT_INTERCEPTORS,
   parseInterceptResult,
   resolveMessageInterceptor,
   runMessageInterceptor,
@@ -76,6 +77,15 @@ describe('runMessageInterceptor', () => {
       REQUEST,
     );
     expect(result).toEqual({ handled: true, reply: 'alice picked 1A, 2B in active', reaction: undefined });
+  });
+
+  test('past the concurrency limit a message passes through without a command', async () => {
+    const slow = node(`setTimeout(()=>console.log('{"handled":true}'),300)`);
+    const running = Array.from({ length: MAX_CONCURRENT_INTERCEPTORS }, () => runMessageInterceptor(slow, REQUEST));
+    const started = Date.now();
+    expect(await runMessageInterceptor(slow, REQUEST)).toEqual({ handled: false });
+    expect(Date.now() - started).toBeLessThan(100);
+    for (const result of await Promise.all(running)) expect(result.handled).toBe(true);
   });
 
   test('a non-zero exit is not handled, whatever it printed', async () => {
