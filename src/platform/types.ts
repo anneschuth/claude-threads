@@ -26,6 +26,7 @@ export interface PlatformPost {
   message: string;      // Message text content
   rootId?: string;      // Thread parent ID (if this is a reply)
   createAt?: number;    // Timestamp (ms since epoch)
+  hasFiles?: boolean;   // Attachments were reported, even if their metadata could not be loaded
   metadata?: {
     files?: PlatformFile[];  // Attached files
     [key: string]: unknown;  // Platform-specific metadata

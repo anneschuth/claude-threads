@@ -20,7 +20,7 @@ Only for a message that is about to reach Claude, after every gate that would st
 | `paused` | resumed the paused session |
 | `none` | started a new session (a first message that set options or a worktree is not offered) |
 
-A message with files is never offered: the interceptor sees text only.
+A message with files is never offered: the interceptor sees text only. Nor is a first message that opens with a `!command`, or a message from an unapproved user that a participant then approves with *Allow once* or *Invite*: an approved message goes straight to Claude.
 
 ## Contract
 
@@ -39,7 +39,7 @@ stdout, to answer it:
 {"handled": true, "reply": "Recorded 1A, 2B and requeued the job.", "reaction": "white_check_mark"}
 ```
 
-`reply` is posted in the thread as the bot; `reaction` is added to the message. Both are optional. With `handled: true`, Claude does not run for this message. In an `active` session, the message and the reply reach Claude with its next turn as side-conversation context, so it is never surprised by a decision made around it.
+`reply` is posted in the thread as the bot (split across several posts if it exceeds the platform's post limit); `reaction` is added to the message. Both are optional. With `handled: true`, Claude does not run for this message. In an `active` session, the message and the reply reach Claude with its next turn as side-conversation context, so it is never surprised by a decision made around it. That context lives in memory: if the session pauses before its next turn, it is not carried into the resumed session.
 
 Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). A broken interceptor therefore costs only what not having one costs. stderr is ignored.
 

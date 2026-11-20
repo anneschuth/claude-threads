@@ -172,7 +172,7 @@ async function interceptedBeforeClaude(
 ): Promise<'handled' | 'passed' | 'skipped'> {
   const config = options.messageInterceptor;
   // 'unknown' is the sentinel for an unresolved sender: the lifecycle refuses it, so must this.
-  if (!config || !content || !user?.username || user.username === 'unknown' || post.metadata?.files?.length) {
+  if (!config || !content || !user?.username || user.username === 'unknown' || post.hasFiles || post.metadata?.files?.length) {
     return 'skipped';
   }
   const username = user.username;
@@ -202,7 +202,11 @@ async function interceptedBeforeClaude(
   let replied = false;
   if (result.reply) {
     try {
-      await client.createPost(result.reply, threadRoot);
+      // The reply may fit the 64 KB output cap yet not one post.
+      const { maxLength } = client.getMessageLimits();
+      for (let i = 0; i < result.reply.length; i += maxLength) {
+        await client.createPost(result.reply.slice(i, i + maxLength), threadRoot);
+      }
       replied = true;
     } catch (err) {
       // The command already acted, so the message is not handed to Claude to
@@ -789,8 +793,9 @@ export async function handleMessage(
     }
 
     // Only a plain message is offered: one that set options or a worktree
-    // asked for a session, which the interceptor cannot give.
-    if (!worktreeBranch && Object.keys(initialOptions).length === 0) {
+    // asked for a session, which the interceptor cannot give, and one that
+    // opens with a known !command is a command, not a message.
+    if (!worktreeBranch && Object.keys(initialOptions).length === 0 && firstMessageCommand === null) {
       const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, prompt.trim(), 'none');
       if (intercepted === 'handled') return;
       if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));

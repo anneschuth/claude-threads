@@ -24,6 +24,7 @@ function createMockPlatform(botName = 'claude-bot', platformType = 'slack') {
   return {
     platformId: 'test-platform',
     platformType,
+    getMessageLimits: () => ({ maxLength: 16000, hardThreshold: 14000 }),
     createPost: mock(async (message: string, threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);
@@ -2996,6 +2997,26 @@ describe('message interceptor', () => {
     const files = [{ id: 'f1', name: 'shot.png' }] as any;
     await handleMessage(client, session, post('1A', { metadata: { files } } as any), user, options(HANDLED));
     expect(session.sendFollowUp).toHaveBeenCalled();
+  });
+
+  test('a message whose attachments lost their metadata is never offered', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('1A', { hasFiles: true }), user, options(HANDLED));
+    expect(session.sendFollowUp).toHaveBeenCalled();
+  });
+
+  test('a first message opening with a command and arguments is never offered', async () => {
+    await handleMessage(client, session, post('@claude-bot !invite bob'), user, options(HANDLED));
+    expect(client.createPost).not.toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+  });
+
+  test('a reply longer than one post is split across posts', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    (client as any).getMessageLimits = () => ({ maxLength: 10, hardThreshold: 8 });
+    const long = node(`console.log(JSON.stringify({handled:true,reply:'x'.repeat(25)}))`);
+    await handleMessage(client, session, post('1A'), user, options(long));
+    const parts = (client.createPost as any).mock.calls.map((c: unknown[]) => c[0]);
+    expect(parts).toEqual(['x'.repeat(10), 'x'.repeat(10), 'x'.repeat(5)]);
   });
 
   test('commands are never offered', async () => {
