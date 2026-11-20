@@ -939,7 +939,9 @@ async function startWithoutDaemon() {
       ui,
       platformConfig.directChannelMode,
       resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
-      () => !botStopping && !disablingPlatforms.has(platformConfig.id) && (platformEnabledState.get(platformConfig.id) ?? true),
+      // Not platformEnabledState: a startup connect failure sets it too, and an automatic
+      // reconnect never clears it. An operator disable bumps the generation instead.
+      () => !botStopping && !disablingPlatforms.has(platformConfig.id),
       () => platformGenerations.get(platformConfig.id) ?? 0,
     );
   }
