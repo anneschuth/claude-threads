@@ -23,6 +23,11 @@ import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resol
 import { auditLog } from './persistence/audit-log.js';
 import { createLogger } from './utils/logger.js';
 import { shouldPostResumeRefusal } from './session/refusal-limiter.js';
+import {
+  runMessageInterceptor,
+  type InterceptSessionState,
+  type MessageInterceptorConfig,
+} from './message-interceptor.js';
 
 const ackLog = createLogger('ack');
 
@@ -114,6 +119,12 @@ export interface MessageHandlerOptions {
    * `PlatformInstanceConfig.directChannelMode`.
    */
   directChannelMode?: DirectChannelModeConfig;
+  /**
+   * Operator command offered each message just before it would reach Claude;
+   * when it answers `handled`, Claude never runs. See message-interceptor.ts
+   * and `PlatformInstanceConfig.messageInterceptor`.
+   */
+  messageInterceptor?: MessageInterceptorConfig;
 }
 
 /**
@@ -138,6 +149,69 @@ function ackReceipt(client: PlatformClient, postId: string): void {
     // typo in the config is diagnosable, while a flaky reaction stays silent.
     ackLog.debug(`ack reaction '${emoji}' failed on ${postId}: ${err}`);
   });
+}
+
+/**
+ * Offer a message that has cleared every gate to the operator's interceptor.
+ * True when it answered the message, so Claude must not run. A message with
+ * files is never offered: the interceptor sees text only, and must not answer
+ * for an attachment it cannot read.
+ */
+async function interceptedBeforeClaude(
+  client: PlatformClient,
+  session: SessionManager,
+  options: MessageHandlerOptions,
+  post: PlatformPost,
+  threadRoot: string,
+  username: string,
+  content: string,
+  state: InterceptSessionState,
+): Promise<boolean> {
+  const config = options.messageInterceptor;
+  if (!config || !content || post.metadata?.files?.length) return false;
+  const result = await runMessageInterceptor(config, {
+    version: 1,
+    platformId: options.platformId,
+    threadId: threadRoot,
+    postId: post.id,
+    username,
+    message: content,
+    session: state,
+  });
+  if (!result.handled) return false;
+  auditLog(options.platformId, {
+    threadId: threadRoot,
+    actor: username,
+    kind: 'command',
+    tool: 'message-interceptor',
+    detail: result.reply ? 'handled with a reply' : 'handled',
+  });
+  if (result.reaction) {
+    void Promise.resolve(client.addReaction(post.id, result.reaction)).catch((err) => {
+      ackLog.debug(`interceptor reaction '${result.reaction}' failed on ${post.id}: ${err}`);
+    });
+  }
+  if (result.reply) {
+    try {
+      await client.createPost(result.reply, threadRoot);
+    } catch (err) {
+      logSilentError('message-interceptor-reply', err);
+    }
+  }
+  // A live session would otherwise never learn this exchange happened: it
+  // reaches Claude with the next turn, the way side conversations do.
+  if (state === 'active') {
+    session.addSideConversation(threadRoot, {
+      fromUser: username,
+      mentionedUser: client.getBotName(),
+      message: result.reply
+        ? `${content}\n[Answered without you by the message interceptor: ${result.reply}]`
+        : `${content}\n[Handled without you by the message interceptor]`,
+      timestamp: new Date(),
+      postId: post.id,
+    });
+  }
+  return true;
 }
 
 /**
@@ -345,6 +419,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
+        if (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, content, 'active')) {
+          return;
+        }
         ackReceipt(client, post.id);
         await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
       }
@@ -492,6 +569,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
+        if (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, content, 'paused')) {
+          return;
+        }
         ackReceipt(client, post.id);
         await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }
@@ -671,6 +751,16 @@ export async function handleMessage(
       // Options were set but no actual prompt - could optionally start session anyway
       // For now, require a prompt or files (unless worktree specified)
       await client.createPost(`Mention me with your request`, threadRoot);
+      return;
+    }
+
+    // Only a plain message is offered: one that set options or a worktree
+    // asked for a session, which the interceptor cannot give.
+    if (
+      !worktreeBranch &&
+      Object.keys(initialOptions).length === 0 &&
+      (await interceptedBeforeClaude(client, session, options, post, threadRoot, username, prompt.trim(), 'none'))
+    ) {
       return;
     }
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`messageInterceptor`: an operator command can answer a message before it wakes Claude.** Off by default. When set on a platform entry, a message that has passed every authorization gate and is about to reach Claude (a follow-up, a paused-session resume or a new session) is first sent to the command as JSON on stdin. If the command prints `{"handled": true, "reply"?: "...", "reaction"?: "..."}`, the bot posts the reply and adds the reaction, and Claude never runs for that message. In an active session the exchange reaches Claude with its next turn, the way side conversations do. Anything else (a non-zero exit, a timeout, other output) lets the message through, so a broken interceptor costs no more than not having one. Messages with files and `!commands` are never offered. Useful when many replies need no model at all, such as a pick from options the bot posted: each such turn otherwise re-reads the whole thread. See docs/message-interceptor.md.
+
 ## [1.42.0] - 2026-11-15
 
 ### Added

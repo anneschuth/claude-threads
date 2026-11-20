@@ -47,6 +47,7 @@ import { dim, red, yellow } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
+import { resolveMessageInterceptor, type MessageInterceptorConfig } from './message-interceptor.js';
 import { handleMessage } from './message-handler.js';
 import { AutoUpdateManager } from './auto-update/index.js';
 import {
@@ -111,7 +112,8 @@ function wirePlatformEvents(
   client: PlatformClient,
   session: SessionManager,
   ui: UIProvider,
-  directChannelMode?: DirectChannelModeConfig
+  directChannelMode?: DirectChannelModeConfig,
+  messageInterceptor?: MessageInterceptorConfig
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -122,6 +124,7 @@ function wirePlatformEvents(
     await handleMessage(client, session, post, user, {
       platformId,
       directChannelMode,
+      messageInterceptor,
       logger: {
         error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
       },
@@ -909,7 +912,14 @@ async function startWithoutDaemon() {
     });
 
     // Wire up platform events
-    wirePlatformEvents(platformConfig.id, client, session, ui, platformConfig.directChannelMode);
+    wirePlatformEvents(
+      platformConfig.id,
+      client,
+      session,
+      ui,
+      platformConfig.directChannelMode,
+      resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
+    );
   }
 
   // ---------------------------------------------------------------------------

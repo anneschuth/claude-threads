@@ -1047,6 +1047,14 @@ export interface PlatformInstanceConfig {
    */
   lifecycleDelivery?: LifecycleDelivery;
   /**
+   * Operator command offered each message just before it would wake Claude
+   * (follow-up, resume or new session, after every authorization gate). It
+   * reads one JSON request on stdin and may answer `{"handled": true,
+   * "reply"?, "reaction"?}` on stdout, in which case Claude never runs. Fails
+   * open. Off by default. See docs/message-interceptor.md.
+   */
+  messageInterceptor?: import('../message-interceptor.js').MessageInterceptorConfig;
+  /**
    * End-of-turn marker on the reply's last post, for integrations that read
    * the channel: `reaction` (an emoji, any platform), `metadata` (Slack
    * message metadata, invisible), `off` (default). See docs/turn-marker-spec.md.

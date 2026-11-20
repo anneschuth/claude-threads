@@ -1,0 +1,51 @@
+# Message interceptor
+
+Some messages need no model. A reply that picks option "1A, 2B" from a question the bot posted, a lookup that a script answers exactly, an acknowledgement: sending them to Claude still costs a full turn, and in a long thread that turn re-reads the whole conversation. `messageInterceptor` lets an operator command answer such a message instead.
+
+```yaml
+platforms:
+  - id: mattermost-main
+    messageInterceptor:
+      command: ["/usr/local/bin/my-interceptor", "--flag"]   # argv, run without a shell
+      timeoutMs: 10000                                        # optional, default 10000
+```
+
+## When it runs
+
+Only for a message that is about to reach Claude, after every gate that would stop it: authorization, approvals, side conversations, quiet mode, `!commands`, pending worktree prompts. That is three places:
+
+| `session` | The message would have... |
+|---|---|
+| `active` | been sent to the running session as a follow-up |
+| `paused` | resumed the paused session |
+| `none` | started a new session (a first message that set options or a worktree is not offered) |
+
+A message with files is never offered: the interceptor sees text only.
+
+## Contract
+
+stdin, one JSON object:
+
+```json
+{"version": 1, "platformId": "mattermost-main", "threadId": "abc", "postId": "def",
+ "username": "alice", "message": "1A, 2B", "session": "active"}
+```
+
+`message` is what Claude would have received: the bot mention removed, trimmed.
+
+stdout, to answer it:
+
+```json
+{"handled": true, "reply": "Recorded 1A, 2B and requeued the job.", "reaction": "white_check_mark"}
+```
+
+`reply` is posted in the thread as the bot; `reaction` is added to the message. Both are optional. With `handled: true`, Claude does not run for this message. In an `active` session, the message and the reply reach Claude with its next turn as side-conversation context, so it is never surprised by a decision made around it.
+
+Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). A broken interceptor therefore costs only what not having one costs. stderr is ignored.
+
+Each handled message is recorded in the audit log (when enabled) as a `command` entry with tool `message-interceptor`.
+
+## Notes
+
+- The handler waits for the interceptor before routing the message, so keep it fast. A second message in the same thread can overtake one that is still being intercepted.
+- Derived DM instances do not inherit the setting.

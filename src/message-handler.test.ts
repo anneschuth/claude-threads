@@ -2921,3 +2921,92 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
     expect(performance.now() - started).toBeLessThan(250);
   }, 30_000);
 });
+
+describe('message interceptor', () => {
+  let client: PlatformClient & { posts: Map<string, string> };
+  let session: ReturnType<typeof createMockSessionManager>;
+  const node = (script: string) => ({ command: [process.execPath, '-e', script] });
+  const HANDLED = node(`console.log(JSON.stringify({handled:true,reply:'Requeued on 1A.',reaction:'white_check_mark'}))`);
+  const PASS = node(`console.log('{"handled":false}')`);
+  const options = (messageInterceptor?: ReturnType<typeof node>): MessageHandlerOptions => ({
+    platformId: 'test-platform',
+    logger: { error: mock(() => {}), debug: mock(() => {}) },
+    messageInterceptor,
+  });
+  const post = (message: string, extra: Partial<PlatformPost> = {}): PlatformPost => ({
+    id: 'post9', platformId: 'test', channelId: 'channel1', userId: 'user1', message,
+    rootId: 'thread1', createAt: Date.now(), ...extra,
+  });
+  const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+  });
+
+  test('a handled follow-up never reaches Claude; the reply posts and the session hears of it', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('1A'), user, options(HANDLED));
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+    expect(client.createPost).toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+    expect(client.addReaction).toHaveBeenCalledWith('post9', 'white_check_mark');
+    const [threadId, conv] = (session.addSideConversation as any).mock.calls[0];
+    expect(threadId).toBe('thread1');
+    expect(conv.fromUser).toBe('allowed-user');
+    expect(conv.message).toContain('1A');
+    expect(conv.message).toContain('Requeued on 1A.');
+  });
+
+  test('a follow-up the interceptor lets through reaches Claude unchanged', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('1A'), user, options(PASS));
+    expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '1A', undefined, 'allowed-user', 'User');
+    expect(session.addSideConversation).not.toHaveBeenCalled();
+  });
+
+  test('a handled message does not resume a paused session', async () => {
+    (session.registry.getPersistedByThreadId as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+    (session.getPersistedSession as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+    await handleMessage(client, session, post('1A'), user, options(HANDLED));
+    expect(session.resumePausedSession).not.toHaveBeenCalled();
+    expect(session.addSideConversation).not.toHaveBeenCalled();
+    expect(client.createPost).toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+  });
+
+  test('a handled mention starts no session', async () => {
+    await handleMessage(client, session, post('@claude-bot 1A'), user, options(HANDLED));
+    expect(session.startSession).not.toHaveBeenCalled();
+  });
+
+  test('the interceptor sees the message without the bot mention', async () => {
+    const echo = node(`let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);` +
+      `console.log(JSON.stringify({handled:true,reply:r.message+'|'+r.session+'|'+r.threadId+'|'+r.postId}))})`);
+    await handleMessage(client, session, post('@claude-bot 2B'), user, options(echo));
+    expect(client.createPost).toHaveBeenCalledWith('2B|none|thread1|post9', 'thread1');
+  });
+
+  test('an unauthorized user never reaches the interceptor', async () => {
+    const stranger: PlatformUser = { id: 'u2', username: 'stranger', displayName: 'S' };
+    await handleMessage(client, session, post('@claude-bot 1A'), stranger, options(HANDLED));
+    expect(client.createPost).not.toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+  });
+
+  test('a message with files is never offered', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    const files = [{ id: 'f1', name: 'shot.png' }] as any;
+    await handleMessage(client, session, post('1A', { metadata: { files } } as any), user, options(HANDLED));
+    expect(session.sendFollowUp).toHaveBeenCalled();
+  });
+
+  test('commands are never offered', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('!stop'), user, options(HANDLED));
+    expect(client.createPost).not.toHaveBeenCalledWith('Requeued on 1A.', 'thread1');
+  });
+
+  test('without the option nothing changes', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    await handleMessage(client, session, post('1A'), user, options());
+    expect(session.sendFollowUp).toHaveBeenCalled();
+  });
+});
