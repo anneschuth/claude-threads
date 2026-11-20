@@ -171,7 +171,10 @@ async function interceptedBeforeClaude(
   state: InterceptSessionState,
 ): Promise<'handled' | 'passed' | 'skipped'> {
   const config = options.messageInterceptor;
-  if (!config || !content || !user?.username || post.metadata?.files?.length) return 'skipped';
+  // 'unknown' is the sentinel for an unresolved sender: the lifecycle refuses it, so must this.
+  if (!config || !content || !user?.username || user.username === 'unknown' || post.metadata?.files?.length) {
+    return 'skipped';
+  }
   const username = user.username;
   const sessionBefore = state === 'active' ? session.registry.findByThreadId(threadRoot, options.platformId) : undefined;
   const result = await runMessageInterceptor(config, {
@@ -196,11 +199,17 @@ async function interceptedBeforeClaude(
       ackLog.debug(`interceptor reaction '${result.reaction}' failed on ${post.id}: ${err}`);
     });
   }
+  let replied = false;
   if (result.reply) {
     try {
       await client.createPost(result.reply, threadRoot);
+      replied = true;
     } catch (err) {
-      logSilentError('message-interceptor-reply', err);
+      // The command already acted, so the message is not handed to Claude to
+      // be acted on twice; the operator learns the answer never reached the thread.
+      options.logger?.error(
+        `message interceptor handled ${post.id} but its reply could not be posted: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   // A live session would otherwise never learn this exchange happened: it
@@ -218,14 +227,20 @@ async function interceptedBeforeClaude(
     session.addSideConversation(threadRoot, {
       fromUser: username,
       mentionedUser: client.getBotName(),
-      message: result.reply
-        ? `${content}\n[Answered without you by the message interceptor: ${result.reply}]`
-        : `${content}\n[Handled without you by the message interceptor]`,
+      // Marker and reply first, each bounded: side-conversation context keeps
+      // only its first 300 characters, and the reply is what Claude must not miss.
+      message: replied
+        ? `[Answered without you by the message interceptor: ${clip(result.reply ?? '', 190)}] ${clip(content, 50)}`
+        : `[Handled without you by the message interceptor] ${clip(content, 200)}`,
       timestamp: new Date(),
       postId: post.id,
     });
   }
   return 'handled';
+}
+
+function clip(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
 /** Route a message the interceptor let through again, from the top, without it. */

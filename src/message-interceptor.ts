@@ -53,6 +53,8 @@ export interface InterceptResult {
 
 export const DEFAULT_INTERCEPTOR_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
+/** setTimeout's ceiling: a larger delay fires after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
 const NOT_HANDLED: InterceptResult = { handled: false };
 
 /**
@@ -70,11 +72,13 @@ export function resolveMessageInterceptor(
   const validCommand =
     Array.isArray(command) && command.length > 0 && command.every((part) => typeof part === 'string' && part !== '');
   const timeout = raw?.timeoutMs;
-  const validTimeout = timeout === undefined || (Number.isInteger(timeout) && timeout > 0);
+  const validTimeout =
+    timeout === undefined || (Number.isInteger(timeout) && timeout > 0 && timeout <= MAX_TIMER_MS);
   if (typeof value !== 'object' || !validCommand || !validTimeout) {
+    // The value itself is not echoed: its arguments may carry credentials.
     console.warn(
-      `Invalid ${fieldPath} config: expected { command: [program, ...args], timeoutMs?: positive integer },` +
-        ` got ${JSON.stringify(value)} — message interceptor disabled`,
+      `Invalid ${fieldPath} config: expected { command: [program, ...args], timeoutMs?: 1..${MAX_TIMER_MS} }` +
+        ' — message interceptor disabled',
     );
     return undefined;
   }
@@ -92,13 +96,33 @@ const defaultSpawn: Spawn = (command, args) =>
 /** Kill the command and everything it started, and let go of its pipe. */
 function terminate(child: ChildProcess | undefined): void {
   if (!child) return;
+  live.delete(child);
   try {
-    if (ownGroup && child.pid) process.kill(-child.pid, 'SIGKILL');
-    else child.kill('SIGKILL');
+    if (ownGroup && child.pid) {
+      process.kill(-child.pid, 'SIGKILL');
+    } else if (process.platform === 'win32' && child.pid) {
+      // A .cmd shim runs under cmd.exe: killing that leaves the program running.
+      crossSpawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    } else {
+      child.kill('SIGKILL');
+    }
   } catch {
     child.kill('SIGKILL');
   }
   child.stdout?.destroy();
+}
+
+// Commands still running when the bot exits (!kill, an update, a crash) are
+// in their own process group, so nothing else would stop them.
+const live = new Set<ChildProcess>();
+let exitHookInstalled = false;
+function track(child: ChildProcess): void {
+  live.add(child);
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.on('exit', () => {
+    for (const running of [...live]) terminate(running);
+  });
 }
 
 /** Parse the command's stdout. Anything but a well-formed "handled" object is NOT_HANDLED. */
@@ -132,6 +156,7 @@ export function runMessageInterceptor(
     let settled = false;
     let child: ChildProcess;
     const finish = (result: InterceptResult) => {
+      if (child) live.delete(child);
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -144,6 +169,7 @@ export function runMessageInterceptor(
 
     try {
       child = spawnFn(config.command[0], config.command.slice(1));
+      track(child);
     } catch {
       finish(NOT_HANDLED);
       return;
