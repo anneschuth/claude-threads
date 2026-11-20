@@ -140,6 +140,7 @@ describe('runMessageInterceptor', () => {
   });
 
   test('a timeout also ends the helpers the command started', async () => {
+    if (process.platform === 'win32') return;
     const marker = `ct-intercept-helper-${process.pid}-${Date.now()}`;
     const result = await runMessageInterceptor(
       {

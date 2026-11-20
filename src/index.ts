@@ -134,6 +134,9 @@ function wirePlatformEvents(
       logger: {
         error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
       },
+      onKillStarted: () => {
+        botStopping = true;
+      },
       onKill: (username) => {
         ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
         // Exit with code 0 so daemon doesn't restart us
@@ -718,14 +721,17 @@ async function startWithoutDaemon() {
             // Pause all active sessions for this platform first. Interceptor
             // results stop routing before the pause snapshots the sessions.
             disablingPlatforms.add(platformId);
-            await sessionManager?.pauseSessionsForPlatform(platformId);
-            client.disconnect();
-            // Persist disabled state — including the in-memory snapshot the DM
-            // discovery runtime consults, so the next incoming DM cannot
-            // silently re-enable this instance.
-            sessionStore.setPlatformEnabled(platformId, false);
-            platformEnabledState.set(platformId, false);
-            disablingPlatforms.delete(platformId);
+            try {
+              await sessionManager?.pauseSessionsForPlatform(platformId);
+              client.disconnect();
+              // Persist disabled state — including the in-memory snapshot the DM
+              // discovery runtime consults, so the next incoming DM cannot
+              // silently re-enable this instance.
+              sessionStore.setPlatformEnabled(platformId, false);
+              platformEnabledState.set(platformId, false);
+            } finally {
+              disablingPlatforms.delete(platformId);
+            }
             ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
             // The socket this entry owned also fed every entry on the same Slack

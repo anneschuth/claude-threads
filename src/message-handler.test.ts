@@ -140,6 +140,30 @@ describe('handleMessage', () => {
       expect(onKill).toHaveBeenCalledWith('admin');
     });
 
+    test('signals the kill before the first notification is posted', async () => {
+      const order: string[] = [];
+      options.onKillStarted = () => order.push('started');
+      (client.createPost as any).mockImplementation(async () => {
+        order.push('post');
+        return { id: 'p' };
+      });
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!kill',
+        rootId: '',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(order[0]).toBe('started');
+      expect(order).toContain('post');
+    });
+
     test('rejects kill for unauthorized user', async () => {
       const post: PlatformPost = {
         id: 'post1',
@@ -3074,6 +3098,17 @@ describe('message interceptor', () => {
     const run = handleMessage(client, session, post('1A'), user, { ...options(slow), isPlatformEnabled: () => enabled });
     enabled = false;
     await run;
+    expect(client.createPost).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  test('a platform already stopping never runs the command and nothing reaches Claude', async () => {
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    const marker = `/tmp/ct-intercept-ran-${process.pid}-${Date.now()}`;
+    const touch = node(`require('fs').writeFileSync(${JSON.stringify(marker)}, 'x'); console.log('{"handled":false}')`);
+    await handleMessage(client, session, post('1A'), user, { ...options(touch), isPlatformEnabled: () => false });
+    const { existsSync } = await import('fs');
+    expect(existsSync(marker)).toBe(false);
     expect(client.createPost).not.toHaveBeenCalled();
     expect(session.sendFollowUp).not.toHaveBeenCalled();
   });

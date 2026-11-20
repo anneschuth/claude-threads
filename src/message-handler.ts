@@ -112,6 +112,11 @@ export interface MessageHandlerOptions {
    */
   onKill?: (username: string) => void | Promise<void>;
   /**
+   * Called synchronously as soon as an authorized !kill begins, before any
+   * notification is sent, so in-flight interceptor results stop routing.
+   */
+  onKillStarted?: () => void;
+  /**
    * Direct channel mode (DCM): the whole channel is one session. All messages
    * route to the synthetic `dcm:<platformId>` session key regardless of which
    * thread they were posted in. Accepts the raw config value (shorthand
@@ -182,6 +187,10 @@ async function interceptedBeforeClaude(
     return 'skipped';
   }
   const username = user.username;
+  if (options.isPlatformEnabled && !options.isPlatformEnabled()) {
+    options.logger?.debug?.(`platform ${options.platformId} is stopping or disabled; ${post.id} not intercepted, dropped`);
+    return 'handled';
+  }
   const sessionBefore = state === 'active' ? session.registry.findByThreadId(threadRoot, options.platformId) : undefined;
   const result = await runMessageInterceptor(config, {
     version: 1,
@@ -327,7 +336,7 @@ export async function handleMessage(
   user: PlatformUser | null,
   options: MessageHandlerOptions
 ): Promise<void> {
-  const { platformId, logger, onKill } = options;
+  const { platformId, logger, onKill, onKillStarted } = options;
   const dcm = resolveDirectChannelMode(options.directChannelMode);
   const username = user?.username || 'unknown';
   const message = post.message;
@@ -356,6 +365,7 @@ export async function handleMessage(
         await client.createPost(`⛔ Only authorized users can use ${formatter.formatCode('!kill')}`, threadRoot);
         return;
       }
+      onKillStarted?.();
       auditLog(platformId, {
         threadId: threadRoot,
         actor: username,
