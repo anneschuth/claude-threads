@@ -57,3 +57,5 @@ Each handled message is recorded in the audit log (when enabled) as a `command` 
 
 - The handler waits for the interceptor before routing the message, so keep it fast. A second message in the same thread can overtake one that is still being intercepted.
 - Derived DM instances do not inherit the setting.
+- Disabling a platform or shutting down drops interceptor results that have not been delivered yet. A reply or reaction the platform client is already retrying (for example during a Slack rate-limit backoff) is not cancelled and may still land.
+- On POSIX each command runs in its own process group, killed on timeout and on exit. A `SIGTERM` that arrives during startup, before the bot installs its signal handlers, skips that cleanup, so a command started in that window runs to its own end.
