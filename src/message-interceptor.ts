@@ -37,6 +37,8 @@ export interface InterceptRequest {
   platformId: string;
   threadId: string;
   postId: string;
+  /** When the message was posted (ms since epoch), when the platform says; replays can arrive late. */
+  createAt?: number;
   username: string;
   /** The message as Claude would get it: bot mention stripped, trimmed. */
   message: string;
@@ -94,6 +96,16 @@ const ownGroup = process.platform !== 'win32';
 
 const defaultSpawn: Spawn = (command, args) =>
   crossSpawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], detached: ownGroup });
+
+/** Kill what is left of an exited command's process group (POSIX only; nothing on Windows). */
+function terminateGroup(child: ChildProcess): void {
+  if (!ownGroup || !child.pid) return;
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    // the group is already gone
+  }
+}
 
 /** Kill the command and everything it started, and let go of its pipe. */
 function terminate(child: ChildProcess | undefined): void {
@@ -192,6 +204,8 @@ export function runMessageInterceptor(
     });
     child.on('error', () => finish(NOT_HANDLED));
     child.on('close', (code) => {
+      // Anything the command left running in its group must not outlive its answer.
+      terminateGroup(child);
       finish(code === 0 ? parseInterceptResult(Buffer.concat(chunks).toString('utf8')) : NOT_HANDLED);
     });
     child.stdin?.on('error', () => {

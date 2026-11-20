@@ -28,8 +28,10 @@ stdin, one JSON object:
 
 ```json
 {"version": 1, "platformId": "mattermost-main", "threadId": "abc", "postId": "def",
- "username": "alice", "message": "1A, 2B", "session": "active"}
+ "createAt": 1795150000000, "username": "alice", "message": "1A, 2B", "session": "active"}
 ```
+
+`createAt` (ms since epoch) is present when the platform reports when the message was posted. A message the bot missed while disconnected can arrive late, after the question it answers was replaced; compare it with your own records before acting.
 
 `message` is what Claude would have received: the bot mention removed, trimmed.
 
@@ -41,9 +43,9 @@ stdout, to answer it:
 
 `reply` is posted in the thread as the bot (split across several posts if it exceeds the platform's post limit); `reaction` is added to the message. Both are optional. With `handled: true`, Claude does not run for this message. In an `active` session, the message and the reply reach Claude with its next turn as side-conversation context, so it is never surprised by a decision made around it. That context lives in memory, as for any side conversation: if the session pauses before its next turn, it is not carried into the resumed session, and a turn sent with thread context (the first message after `!cd`) does not include it.
 
-A message the interceptor lets through is routed again from the start, since the session may have paused or started while the command ran. If it was on its way to a session that was stopped meanwhile, it is dropped with that session rather than starting a new one. If the platform is disabled while the command runs, the message is dropped and no reply is posted.
+A message the interceptor lets through is routed again from the start, since the session may have paused or started while the command ran. If it was on its way to a session that was stopped meanwhile, it is dropped with that session rather than starting a new one. If the platform is disabled, or the bot starts shutting down, while the command runs, the message is dropped and no reply is posted.
 
-Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). A broken interceptor therefore costs only what not having one costs, with one exception: nothing is rolled back. A command that acts and then fails to answer in time (or exits non-zero, or prints invalid JSON) has acted, and Claude still receives the message. Make any change the command makes idempotent, keyed by `platformId` and `postId`, or keep it read-only until it is sure to answer. stderr is ignored.
+Everything else means "let it through": `handled` not exactly `true`, invalid JSON, more than 64 KB of output, a non-zero exit, a spawn error, or no answer within `timeoutMs` (the command is then killed). On POSIX the command runs in its own process group, and whatever it leaves running in that group is killed when it exits. A broken interceptor therefore costs only what not having one costs, with one exception: nothing is rolled back. A command that acts and then fails to answer in time (or exits non-zero, or prints invalid JSON) has acted, and Claude still receives the message. Make any change the command makes idempotent, keyed by `platformId` and `postId`, or keep it read-only until it is sure to answer. stderr is ignored.
 
 At most 8 interceptor commands run at once across the bot; a message arriving while 8 are running passes through without being offered.
 

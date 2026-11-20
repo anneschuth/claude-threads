@@ -106,6 +106,8 @@ const togglePlatformSerially = createSerialByKey<string>();
  * the exact failure this feature exists to end.
  */
 let onReconnectExhausted: ((platformId: string) => void) | undefined;
+/** Set once shutdown or an update restart begins: an interceptor result arriving after it routes nothing. */
+let botStopping = false;
 
 function wirePlatformEvents(
   platformId: string,
@@ -921,7 +923,7 @@ async function startWithoutDaemon() {
       ui,
       platformConfig.directChannelMode,
       resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
-      () => platformEnabledState.get(platformConfig.id) ?? true,
+      () => !botStopping && (platformEnabledState.get(platformConfig.id) ?? true),
     );
   }
 
@@ -1113,6 +1115,7 @@ async function startWithoutDaemon() {
       // Reuse shutdown logic to persist sessions before update restart
       if (isShuttingDown) return;
       isShuttingDown = true;
+      botStopping = true;
 
       ui.setShuttingDown();
       session.setShuttingDown();
@@ -1231,6 +1234,7 @@ async function startWithoutDaemon() {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
     isShuttingDown = true;
+    botStopping = true;
     // Set the shutdown flag before ANY await: a service manager that signals
     // the whole process group (systemd KillMode=control-group) kills the
     // agent children at the same instant, and their exit events must not be

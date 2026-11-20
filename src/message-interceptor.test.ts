@@ -1,4 +1,6 @@
 import { describe, test, expect, spyOn } from 'bun:test';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import {
   MAX_CONCURRENT_INTERCEPTORS,
   parseInterceptResult,
@@ -86,6 +88,17 @@ describe('runMessageInterceptor', () => {
     expect(await runMessageInterceptor(slow, REQUEST)).toEqual({ handled: false });
     expect(Date.now() - started).toBeLessThan(100);
     for (const result of await Promise.all(running)) expect(result.handled).toBe(true);
+  });
+
+  test('a helper the command leaves running is killed when it exits', async () => {
+    if (process.platform === 'win32') return;
+    const marker = `${tmpdir()}/interceptor-leftover-${process.pid}-${Date.now()}`;
+    const leave = `require('child_process').spawn(process.execPath,['-e',` +
+      `'setTimeout(()=>require("fs").writeFileSync(${JSON.stringify(JSON.stringify(marker)).slice(1, -1)},"x"),400)'],{stdio:'ignore'}).unref();` +
+      `console.log('{"handled":false}')`;
+    expect(await runMessageInterceptor(node(leave), REQUEST)).toEqual({ handled: false });
+    await new Promise((r) => setTimeout(r, 800));
+    expect(existsSync(marker)).toBe(false);
   });
 
   test('a non-zero exit is not handled, whatever it printed', async () => {

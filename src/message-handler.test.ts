@@ -2981,9 +2981,9 @@ describe('message interceptor', () => {
 
   test('the interceptor sees the message without the bot mention', async () => {
     const echo = node(`let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);` +
-      `console.log(JSON.stringify({handled:true,reply:r.message+'|'+r.session+'|'+r.threadId+'|'+r.postId}))})`);
-    await handleMessage(client, session, post('@claude-bot 2B'), user, options(echo));
-    expect(client.createPost).toHaveBeenCalledWith('2B|none|thread1|post9', 'thread1');
+      `console.log(JSON.stringify({handled:true,reply:r.message+'|'+r.session+'|'+r.threadId+'|'+r.postId+'|'+r.createAt}))})`);
+    await handleMessage(client, session, post('@claude-bot 2B', { createAt: 1234 }), user, options(echo));
+    expect(client.createPost).toHaveBeenCalledWith('2B|none|thread1|post9|1234', 'thread1');
   });
 
   test('an unauthorized user never reaches the interceptor', async () => {

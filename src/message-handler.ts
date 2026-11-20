@@ -188,6 +188,7 @@ async function interceptedBeforeClaude(
     platformId: options.platformId,
     threadId: threadRoot,
     postId: post.id,
+    ...(post.createAt ? { createAt: post.createAt } : {}),
     username,
     message: content,
     session: state,
