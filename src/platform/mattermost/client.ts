@@ -120,6 +120,7 @@ export class MattermostClient extends BasePlatformClient {
       message: mattermostPost.message,
       rootId: mattermostPost.root_id,
       createAt: mattermostPost.create_at,
+      ...((mattermostPost.file_ids?.length || metadata?.files?.length) ? { hasFiles: true } : {}),
       metadata,
     };
   }

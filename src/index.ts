@@ -47,6 +47,7 @@ import { dim, red, yellow } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
+import { resolveMessageInterceptor, type MessageInterceptorConfig } from './message-interceptor.js';
 import { handleMessage } from './message-handler.js';
 import { AutoUpdateManager } from './auto-update/index.js';
 import {
@@ -105,13 +106,22 @@ const togglePlatformSerially = createSerialByKey<string>();
  * the exact failure this feature exists to end.
  */
 let onReconnectExhausted: ((platformId: string) => void) | undefined;
+/** Set once shutdown or an update restart begins: an interceptor result arriving after it routes nothing. */
+let botStopping = false;
+/** Platforms being disabled: an interceptor result arriving during the pause routes nothing. */
+const disablingPlatforms = new Set<string>();
+/** Bumped when a platform starts being disabled: results from an earlier generation route nothing. */
+const platformGenerations = new Map<string, number>();
 
 function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
   session: SessionManager,
   ui: UIProvider,
-  directChannelMode?: DirectChannelModeConfig
+  directChannelMode?: DirectChannelModeConfig,
+  messageInterceptor?: MessageInterceptorConfig,
+  isPlatformEnabled?: () => boolean,
+  platformGeneration?: () => number,
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -122,8 +132,14 @@ function wirePlatformEvents(
     await handleMessage(client, session, post, user, {
       platformId,
       directChannelMode,
+      messageInterceptor,
+      isPlatformEnabled,
+      platformGeneration,
       logger: {
         error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
+      },
+      onKillStarted: () => {
+        botStopping = true;
       },
       onKill: (username) => {
         ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
@@ -706,14 +722,21 @@ async function startWithoutDaemon() {
           } else {
             // Disable platform: pause sessions and disconnect
             ui.addLog({ level: 'info', component: 'toggle', message: `Disabling platform ${platformId}...` });
-            // Pause all active sessions for this platform first
-            await sessionManager?.pauseSessionsForPlatform(platformId);
-            client.disconnect();
-            // Persist disabled state — including the in-memory snapshot the DM
-            // discovery runtime consults, so the next incoming DM cannot
-            // silently re-enable this instance.
-            sessionStore.setPlatformEnabled(platformId, false);
-            platformEnabledState.set(platformId, false);
+            // Pause all active sessions for this platform first. Interceptor
+            // results stop routing before the pause snapshots the sessions.
+            disablingPlatforms.add(platformId);
+            platformGenerations.set(platformId, (platformGenerations.get(platformId) ?? 0) + 1);
+            try {
+              await sessionManager?.pauseSessionsForPlatform(platformId);
+              client.disconnect();
+              // Persist disabled state — including the in-memory snapshot the DM
+              // discovery runtime consults, so the next incoming DM cannot
+              // silently re-enable this instance.
+              sessionStore.setPlatformEnabled(platformId, false);
+              platformEnabledState.set(platformId, false);
+            } finally {
+              disablingPlatforms.delete(platformId);
+            }
             ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
             // The socket this entry owned also fed every entry on the same Slack
@@ -909,7 +932,18 @@ async function startWithoutDaemon() {
     });
 
     // Wire up platform events
-    wirePlatformEvents(platformConfig.id, client, session, ui, platformConfig.directChannelMode);
+    wirePlatformEvents(
+      platformConfig.id,
+      client,
+      session,
+      ui,
+      platformConfig.directChannelMode,
+      resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
+      // Not platformEnabledState: a startup connect failure sets it too, and an automatic
+      // reconnect never clears it. An operator disable bumps the generation instead.
+      () => !botStopping && !disablingPlatforms.has(platformConfig.id),
+      () => platformGenerations.get(platformConfig.id) ?? 0,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -1100,6 +1134,7 @@ async function startWithoutDaemon() {
       // Reuse shutdown logic to persist sessions before update restart
       if (isShuttingDown) return;
       isShuttingDown = true;
+      botStopping = true;
 
       ui.setShuttingDown();
       session.setShuttingDown();
@@ -1218,6 +1253,7 @@ async function startWithoutDaemon() {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
     isShuttingDown = true;
+    botStopping = true;
     // Set the shutdown flag before ANY await: a service manager that signals
     // the whole process group (systemd KillMode=control-group) kills the
     // agent children at the same instant, and their exit events must not be

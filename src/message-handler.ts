@@ -23,6 +23,11 @@ import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resol
 import { auditLog } from './persistence/audit-log.js';
 import { createLogger } from './utils/logger.js';
 import { shouldPostResumeRefusal } from './session/refusal-limiter.js';
+import {
+  runMessageInterceptor,
+  type InterceptSessionState,
+  type MessageInterceptorConfig,
+} from './message-interceptor.js';
 
 const ackLog = createLogger('ack');
 
@@ -107,6 +112,11 @@ export interface MessageHandlerOptions {
    */
   onKill?: (username: string) => void | Promise<void>;
   /**
+   * Called synchronously as soon as an authorized !kill begins, before any
+   * notification is sent, so in-flight interceptor results stop routing.
+   */
+  onKillStarted?: () => void;
+  /**
    * Direct channel mode (DCM): the whole channel is one session. All messages
    * route to the synthetic `dcm:<platformId>` session key regardless of which
    * thread they were posted in. Accepts the raw config value (shorthand
@@ -114,6 +124,24 @@ export interface MessageHandlerOptions {
    * `PlatformInstanceConfig.directChannelMode`.
    */
   directChannelMode?: DirectChannelModeConfig;
+  /**
+   * Operator command offered each message just before it would reach Claude;
+   * when it answers `handled`, Claude never runs. See message-interceptor.ts
+   * and `PlatformInstanceConfig.messageInterceptor`.
+   */
+  messageInterceptor?: MessageInterceptorConfig;
+  /**
+   * Whether the platform is still switched on. Read when an interceptor
+   * returns: a platform disabled while the command ran gets no reply, and the
+   * message is not routed to Claude.
+   */
+  isPlatformEnabled?: () => boolean;
+  /**
+   * A counter bumped each time the platform starts being disabled. Compared
+   * across the command: a result from before a disable/re-enable cycle is
+   * dropped even though the platform is enabled again by the time it returns.
+   */
+  platformGeneration?: () => number;
 }
 
 /**
@@ -138,6 +166,166 @@ function ackReceipt(client: PlatformClient, postId: string): void {
     // typo in the config is diagnosable, while a flaky reaction stays silent.
     ackLog.debug(`ack reaction '${emoji}' failed on ${postId}: ${err}`);
   });
+}
+
+/**
+ * Offer a message that has cleared every gate to the operator's interceptor.
+ * `handled`: it answered, so Claude must not run. `passed`: it ran and let the
+ * message through; the caller routes the message again from the top without
+ * the interceptor, because the session may have paused, ended or started while
+ * the command ran. `skipped`: it never ran. A message with files is never
+ * offered (the interceptor sees text only), nor one whose sender the platform
+ * could not resolve, which the session lifecycle would refuse anyway.
+ */
+/** Cut text into pieces of at most `maxLength` UTF-16 units, never inside a surrogate pair. */
+export function splitReply(text: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + Math.max(maxLength, 2), text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    chunks.push(text.slice(i, end));
+    i = end;
+  }
+  return chunks;
+}
+
+async function interceptedBeforeClaude(
+  client: PlatformClient,
+  session: SessionManager,
+  options: MessageHandlerOptions,
+  post: PlatformPost,
+  user: PlatformUser | null,
+  threadRoot: string,
+  content: string,
+  state: InterceptSessionState,
+): Promise<'handled' | 'passed' | 'skipped'> {
+  const config = options.messageInterceptor;
+  // 'unknown' is the sentinel for an unresolved sender: the lifecycle refuses it, so must this.
+  if (!config || !content || !user?.username || user.username === 'unknown' || post.hasFiles || post.metadata?.files?.length) {
+    return 'skipped';
+  }
+  const username = user.username;
+  if (options.isPlatformEnabled && !options.isPlatformEnabled()) {
+    options.logger?.debug?.(`platform ${options.platformId} is stopping or disabled; ${post.id} not intercepted, dropped`);
+    return 'handled';
+  }
+  const generationBefore = options.platformGeneration?.();
+  const sessionBefore = state === 'active' ? session.registry.findByThreadId(threadRoot, options.platformId) : undefined;
+  const result = await runMessageInterceptor(config, {
+    version: 1,
+    platformId: options.platformId,
+    threadId: threadRoot,
+    postId: post.id,
+    ...(post.createAt ? { createAt: post.createAt } : {}),
+    username,
+    message: content,
+    session: state,
+  });
+  const stopped = () =>
+    (options.isPlatformEnabled !== undefined && !options.isPlatformEnabled()) ||
+    options.platformGeneration?.() !== generationBefore;
+  if (stopped()) {
+    options.logger?.debug?.(`platform ${options.platformId} was disabled while ${post.id} was being intercepted; dropped`);
+    return 'handled';
+  }
+  if (!result.handled) return 'passed';
+  auditLog(options.platformId, {
+    threadId: threadRoot,
+    actor: username,
+    kind: 'command',
+    tool: 'message-interceptor',
+    detail: result.reply ? 'handled with a reply' : 'handled',
+  });
+  if (result.reaction) {
+    void Promise.resolve(client.addReaction(post.id, result.reaction)).catch((err) => {
+      // As for a failed reply: the command acted, so the message is not re-sent to Claude.
+      options.logger?.error(
+        `message interceptor handled ${post.id} but its reaction '${result.reaction}' could not be added: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }
+  let replied = false;
+  if (result.reply) {
+    try {
+      // The reply may fit the 64 KB output cap yet not one post.
+      const { maxLength } = client.getMessageLimits();
+      for (const chunk of splitReply(result.reply, maxLength)) {
+        // Posting goes over HTTP, so a disable between chunks does not stop it by itself.
+        if (stopped()) {
+          options.logger?.debug?.(`platform ${options.platformId} was disabled while replying to ${post.id}; rest dropped`);
+          return 'handled';
+        }
+        await client.createPost(chunk, threadRoot);
+      }
+      replied = true;
+    } catch (err) {
+      // The command already acted, so the message is not handed to Claude to
+      // be acted on twice; the operator learns the answer never reached the thread.
+      options.logger?.error(
+        `message interceptor handled ${post.id} but its reply could not be posted: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  // A live session would otherwise never learn this exchange happened: it
+  // reaches Claude with the next turn, the way side conversations do. Only
+  // into the session that authorized the message: addSideConversation finds
+  // its session by raw thread id, and the command ran while anything changed.
+  const sessionNow = session.registry.findByThreadId(threadRoot, options.platformId);
+  if (
+    state === 'active' &&
+    sessionNow !== undefined &&
+    sessionNow === sessionBefore &&
+    session.registry.findByThreadId(threadRoot) === sessionNow &&
+    session.isUserAllowedInSession(threadRoot, username, options.platformId)
+  ) {
+    session.addSideConversation(threadRoot, {
+      fromUser: username,
+      mentionedUser: client.getBotName(),
+      // Marker and reply first, each bounded: side-conversation context keeps
+      // only its first 300 characters, and the reply is what Claude must not miss.
+      message: replied
+        ? `[Answered without you by the message interceptor: ${clip(result.reply ?? '', 190)}] ${clip(content, 50)}`
+        : `[Handled without you by the message interceptor] ${clip(content, 200)}`,
+      timestamp: new Date(),
+      postId: post.id,
+    });
+  }
+  return 'handled';
+}
+
+function clip(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/** Route a message the interceptor let through again, from the top, without it. */
+function withoutInterceptor(options: MessageHandlerOptions): MessageHandlerOptions {
+  return { ...options, messageInterceptor: undefined };
+}
+
+/**
+ * Route again a message that was on its way to an active or paused session.
+ * If that session ended (`!stop`, `!kill`) while the command ran, the message
+ * goes with it, as it would have had it reached the session first; routing it
+ * from the top would start a fresh session right after the user stopped one.
+ */
+function rerouteAfterPass(
+  client: PlatformClient,
+  session: SessionManager,
+  post: PlatformPost,
+  user: PlatformUser | null,
+  options: MessageHandlerOptions,
+  threadRoot: string,
+): Promise<void> {
+  if (
+    !session.registry.findByThreadId(threadRoot, options.platformId) &&
+    !session.registry.getPersistedByThreadId(threadRoot, options.platformId)
+  ) {
+    options.logger?.debug?.(`session in ${threadRoot} ended while ${post.id} was being intercepted; dropped`);
+    return Promise.resolve();
+  }
+  return handleMessage(client, session, post, user, withoutInterceptor(options));
 }
 
 /**
@@ -177,7 +365,7 @@ export async function handleMessage(
   user: PlatformUser | null,
   options: MessageHandlerOptions
 ): Promise<void> {
-  const { platformId, logger, onKill } = options;
+  const { platformId, logger, onKill, onKillStarted } = options;
   const dcm = resolveDirectChannelMode(options.directChannelMode);
   const username = user?.username || 'unknown';
   const message = post.message;
@@ -206,6 +394,7 @@ export async function handleMessage(
         await client.createPost(`⛔ Only authorized users can use ${formatter.formatCode('!kill')}`, threadRoot);
         return;
       }
+      onKillStarted?.();
       auditLog(platformId, {
         threadId: threadRoot,
         actor: username,
@@ -345,6 +534,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
+        const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'active');
+        if (intercepted === 'handled') return;
+        if (intercepted === 'passed') return rerouteAfterPass(client, session, post, user, options, threadRoot);
         ackReceipt(client, post.id);
         await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
       }
@@ -492,6 +684,9 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
+        const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'paused');
+        if (intercepted === 'handled') return;
+        if (intercepted === 'passed') return rerouteAfterPass(client, session, post, user, options, threadRoot);
         ackReceipt(client, post.id);
         await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }
@@ -672,6 +867,15 @@ export async function handleMessage(
       // For now, require a prompt or files (unless worktree specified)
       await client.createPost(`Mention me with your request`, threadRoot);
       return;
+    }
+
+    // Only a plain message is offered: one that set options or a worktree
+    // asked for a session, which the interceptor cannot give, and one that
+    // opens with a known !command is a command, not a message.
+    if (!worktreeBranch && Object.keys(initialOptions).length === 0 && firstMessageCommand === null) {
+      const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, prompt.trim(), 'none');
+      if (intercepted === 'handled') return;
+      if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
     }
 
     // Start session with worktree if branch specified
