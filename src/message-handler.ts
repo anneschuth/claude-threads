@@ -256,6 +256,30 @@ function withoutInterceptor(options: MessageHandlerOptions): MessageHandlerOptio
 }
 
 /**
+ * Route again a message that was on its way to an active or paused session.
+ * If that session ended (`!stop`, `!kill`) while the command ran, the message
+ * goes with it, as it would have had it reached the session first; routing it
+ * from the top would start a fresh session right after the user stopped one.
+ */
+function rerouteAfterPass(
+  client: PlatformClient,
+  session: SessionManager,
+  post: PlatformPost,
+  user: PlatformUser | null,
+  options: MessageHandlerOptions,
+  threadRoot: string,
+): Promise<void> {
+  if (
+    !session.registry.findByThreadId(threadRoot, options.platformId) &&
+    !session.registry.getPersistedByThreadId(threadRoot, options.platformId)
+  ) {
+    options.logger?.debug?.(`session in ${threadRoot} ended while ${post.id} was being intercepted; dropped`);
+    return Promise.resolve();
+  }
+  return handleMessage(client, session, post, user, withoutInterceptor(options));
+}
+
+/**
  * The user a message opens by addressing, when that user is NOT the bot —
  * i.e. a human-to-human side conversation the bot must stay out of.
  * Understands both mention syntaxes: plain '@name' (Mattermost, and typed
@@ -462,7 +486,7 @@ export async function handleMessage(
       if (content || files?.length) {
         const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'active');
         if (intercepted === 'handled') return;
-        if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
+        if (intercepted === 'passed') return rerouteAfterPass(client, session, post, user, options, threadRoot);
         ackReceipt(client, post.id);
         await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
       }
@@ -612,7 +636,7 @@ export async function handleMessage(
       if (content || files?.length) {
         const intercepted = await interceptedBeforeClaude(client, session, options, post, user, threadRoot, content, 'paused');
         if (intercepted === 'handled') return;
-        if (intercepted === 'passed') return handleMessage(client, session, post, user, withoutInterceptor(options));
+        if (intercepted === 'passed') return rerouteAfterPass(client, session, post, user, options, threadRoot);
         ackReceipt(client, post.id);
         await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }

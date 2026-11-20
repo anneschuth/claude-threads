@@ -3056,6 +3056,17 @@ describe('message interceptor', () => {
     expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', '1A', undefined, 'allowed-user', 'test-platform');
   });
 
+  test('a let-through message whose session was stopped meanwhile starts nothing', async () => {
+    let stopped = false;
+    (session.registry.findByThreadId as any).mockImplementation(() => (stopped ? undefined : { sessionId: 'test:thread1' }));
+    const pausing = node(`setTimeout(()=>console.log('{"handled":false}'),50)`);
+    const run = handleMessage(client, session, post('@claude-bot 1A'), user, options(pausing));
+    stopped = true;
+    await run;
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+    expect(session.startSession).not.toHaveBeenCalled();
+  });
+
   test('a session replaced while the command ran does not get the context', async () => {
     let current: object = { sessionId: 'test:thread1' };
     (session.registry.findByThreadId as any).mockImplementation(() => current);

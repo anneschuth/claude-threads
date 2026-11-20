@@ -104,7 +104,9 @@ function terminate(child: ChildProcess | undefined): void {
       process.kill(-child.pid, 'SIGKILL');
     } else if (process.platform === 'win32' && child.pid) {
       // A .cmd shim runs under cmd.exe: killing that leaves the program running.
-      crossSpawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      crossSpawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
+        // Without a listener, a taskkill that cannot start would crash the bot.
+        .on('error', () => child.kill('SIGKILL'));
     } else {
       child.kill('SIGKILL');
     }
