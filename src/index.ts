@@ -110,6 +110,8 @@ let onReconnectExhausted: ((platformId: string) => void) | undefined;
 let botStopping = false;
 /** Platforms being disabled: an interceptor result arriving during the pause routes nothing. */
 const disablingPlatforms = new Set<string>();
+/** Bumped when a platform starts being disabled: results from an earlier generation route nothing. */
+const platformGenerations = new Map<string, number>();
 
 function wirePlatformEvents(
   platformId: string,
@@ -119,6 +121,7 @@ function wirePlatformEvents(
   directChannelMode?: DirectChannelModeConfig,
   messageInterceptor?: MessageInterceptorConfig,
   isPlatformEnabled?: () => boolean,
+  platformGeneration?: () => number,
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -131,6 +134,7 @@ function wirePlatformEvents(
       directChannelMode,
       messageInterceptor,
       isPlatformEnabled,
+      platformGeneration,
       logger: {
         error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
       },
@@ -721,6 +725,7 @@ async function startWithoutDaemon() {
             // Pause all active sessions for this platform first. Interceptor
             // results stop routing before the pause snapshots the sessions.
             disablingPlatforms.add(platformId);
+            platformGenerations.set(platformId, (platformGenerations.get(platformId) ?? 0) + 1);
             try {
               await sessionManager?.pauseSessionsForPlatform(platformId);
               client.disconnect();
@@ -935,6 +940,7 @@ async function startWithoutDaemon() {
       platformConfig.directChannelMode,
       resolveMessageInterceptor(platformConfig.messageInterceptor, `platforms[${platformConfig.id}].messageInterceptor`),
       () => !botStopping && !disablingPlatforms.has(platformConfig.id) && (platformEnabledState.get(platformConfig.id) ?? true),
+      () => platformGenerations.get(platformConfig.id) ?? 0,
     );
   }
 

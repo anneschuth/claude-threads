@@ -136,6 +136,12 @@ export interface MessageHandlerOptions {
    * message is not routed to Claude.
    */
   isPlatformEnabled?: () => boolean;
+  /**
+   * A counter bumped each time the platform starts being disabled. Compared
+   * across the command: a result from before a disable/re-enable cycle is
+   * dropped even though the platform is enabled again by the time it returns.
+   */
+  platformGeneration?: () => number;
 }
 
 /**
@@ -171,6 +177,20 @@ function ackReceipt(client: PlatformClient, postId: string): void {
  * offered (the interceptor sees text only), nor one whose sender the platform
  * could not resolve, which the session lifecycle would refuse anyway.
  */
+/** Cut text into pieces of at most `maxLength` UTF-16 units, never inside a surrogate pair. */
+export function splitReply(text: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(i + Math.max(maxLength, 2), text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end -= 1;
+    chunks.push(text.slice(i, end));
+    i = end;
+  }
+  return chunks;
+}
+
 async function interceptedBeforeClaude(
   client: PlatformClient,
   session: SessionManager,
@@ -191,6 +211,7 @@ async function interceptedBeforeClaude(
     options.logger?.debug?.(`platform ${options.platformId} is stopping or disabled; ${post.id} not intercepted, dropped`);
     return 'handled';
   }
+  const generationBefore = options.platformGeneration?.();
   const sessionBefore = state === 'active' ? session.registry.findByThreadId(threadRoot, options.platformId) : undefined;
   const result = await runMessageInterceptor(config, {
     version: 1,
@@ -202,7 +223,10 @@ async function interceptedBeforeClaude(
     message: content,
     session: state,
   });
-  if (options.isPlatformEnabled && !options.isPlatformEnabled()) {
+  if (
+    (options.isPlatformEnabled && !options.isPlatformEnabled()) ||
+    options.platformGeneration?.() !== generationBefore
+  ) {
     options.logger?.debug?.(`platform ${options.platformId} was disabled while ${post.id} was being intercepted; dropped`);
     return 'handled';
   }
@@ -227,8 +251,8 @@ async function interceptedBeforeClaude(
     try {
       // The reply may fit the 64 KB output cap yet not one post.
       const { maxLength } = client.getMessageLimits();
-      for (let i = 0; i < result.reply.length; i += maxLength) {
-        await client.createPost(result.reply.slice(i, i + maxLength), threadRoot);
+      for (const chunk of splitReply(result.reply, maxLength)) {
+        await client.createPost(chunk, threadRoot);
       }
       replied = true;
     } catch (err) {

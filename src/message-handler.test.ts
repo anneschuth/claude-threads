@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { configureAuditLog, _resetAuditLog } from './persistence/audit-log.js';
-import { handleMessage, isClaudeThreadsStatusPost, type MessageHandlerOptions } from './message-handler.js';
+import { handleMessage, isClaudeThreadsStatusPost, splitReply, type MessageHandlerOptions } from './message-handler.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './platform/index.js';
 import type { SessionManager } from './session/index.js';
 import { createMockFormatter } from './test-utils/mock-formatter.js';
@@ -3111,6 +3111,30 @@ describe('message interceptor', () => {
     expect(existsSync(marker)).toBe(false);
     expect(client.createPost).not.toHaveBeenCalled();
     expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  test('a platform disabled and re-enabled while the command ran gets no reply and no Claude', async () => {
+    let generation = 0;
+    (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+    const slow = node(`setTimeout(()=>console.log(JSON.stringify({handled:true,reply:'Requeued on 1A.'})),50)`);
+    const run = handleMessage(client, session, post('1A'), user, {
+      ...options(slow),
+      isPlatformEnabled: () => true,
+      platformGeneration: () => generation,
+    });
+    generation += 1;
+    await run;
+    expect(client.createPost).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  test('a long reply is split without cutting a surrogate pair', () => {
+    const text = 'a'.repeat(4) + '😀' + 'b'.repeat(3);
+    const chunks = splitReply(text, 5);
+    expect(chunks.join('')).toBe(text);
+    expect(chunks.every((c) => c.length <= 5)).toBe(true);
+    expect(chunks[0]).toBe('aaaa');
+    expect(chunks[1].startsWith('😀')).toBe(true);
   });
 
   test('a session replaced while the command ran does not get the context', async () => {
